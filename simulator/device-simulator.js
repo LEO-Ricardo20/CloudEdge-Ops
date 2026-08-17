@@ -1,10 +1,10 @@
 const baseUrl = process.env.CLOUDEDGE_API || 'http://127.0.0.1:4173';
 const deviceId = process.env.DEVICE_ID || 'robot-arm-01';
+const configuredInterval = Number(process.env.SIMULATOR_INTERVAL_MS);
+const loopIntervalMs = Number.isFinite(configuredInterval) && configuredInterval >= 50 ? configuredInterval : 1200;
 
 let tick = 0;
-let otaCommandId = null;
-let otaProgress = 0;
-let firmwareVersion = '0.1.0';
+let firmwareVersion = process.env.FIRMWARE_VERSION || '0.1.0';
 
 function metrics() {
   tick += 1;
@@ -39,25 +39,33 @@ async function postTelemetry() {
 
 async function processCommands() {
   const result = await request(`/api/commands?deviceId=${encodeURIComponent(deviceId)}`);
-  const command = result.commands.find((item) => item.type === 'ota' && item.status !== 'success');
+  const command = result.commands.find((item) => item.type === 'ota');
   if (!command) return;
 
-  if (otaCommandId !== command.id) {
-    otaCommandId = command.id;
-    otaProgress = 0;
+  if (command.status === 'queued') {
     await request(`/api/commands/${command.id}/ack`, { method: 'POST', body: '{}' });
     console.log(`[edge] acknowledged OTA ${command.payload.targetVersion}`);
     return;
   }
 
-  otaProgress = Math.min(100, otaProgress + 25);
-  const status = otaProgress >= 100 ? 'success' : otaProgress >= 50 ? 'installing' : 'downloading';
+  const progress = Math.min(100, command.progress + 25);
+  const status = progress >= 100 ? 'success' : progress >= 50 ? 'installing' : 'downloading';
   await request(`/api/commands/${command.id}/progress`, {
     method: 'POST',
-    body: JSON.stringify({ progress: otaProgress, status }),
+    body: JSON.stringify({ progress, status }),
   });
   if (status === 'success') firmwareVersion = command.payload.targetVersion;
-  console.log(`[edge] OTA ${status}: ${otaProgress}%`);
+  console.log(`[edge] OTA ${status}: ${progress}%`);
+}
+
+async function restoreReportedFirmware() {
+  try {
+    const result = await request(`/api/devices/${encodeURIComponent(deviceId)}`);
+    const reported = result.device?.shadow?.reported?.firmwareVersion || result.device?.firmwareVersion;
+    if (reported) firmwareVersion = reported;
+  } catch (error) {
+    console.warn(`[edge] using local firmware ${firmwareVersion}: ${error.message}`);
+  }
 }
 
 async function loop() {
@@ -70,6 +78,11 @@ async function loop() {
   }
 }
 
-console.log(`CloudEdge simulator using ${baseUrl} for ${deviceId}`);
-loop();
-setInterval(loop, 1200);
+async function start() {
+  console.log(`CloudEdge simulator using ${baseUrl} for ${deviceId}`);
+  await restoreReportedFirmware();
+  await loop();
+  setInterval(loop, loopIntervalMs);
+}
+
+start();

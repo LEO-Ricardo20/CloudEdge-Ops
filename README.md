@@ -1,36 +1,36 @@
 # CloudEdge AI
 
-> A cloud-edge device operations MVP for telemetry, device shadows, alerting, OTA workflows, and realtime observability.
+> A persistent cloud-edge device operations MVP for telemetry, device shadows, alert lifecycle management, OTA workflows, and realtime observability.
 
-CloudEdge AI is a portfolio project for connected industrial or robot devices. This repository contains a runnable MVP: a simulated edge device reports telemetry to an API service; the service maintains a device shadow, evaluates alerts, accepts OTA jobs, and pushes status changes to a browser dashboard through Server-Sent Events (SSE).
+CloudEdge AI is a portfolio project for connected industrial and robot devices. A simulated edge device reports telemetry to a Node.js service; the service maintains a device shadow, evaluates threshold and offline alerts, delivers auditable OTA commands, persists operational state, and streams changes to a browser dashboard through Server-Sent Events (SSE).
 
-The project is deliberately structured so its MVP components can later be replaced by STM32/ESP32 firmware, MQTT/EMQX, Go/Gin, PostgreSQL/Redis, React/TypeScript, and Prometheus/Grafana without changing the core device, telemetry, alert, command, and OTA semantics.
+This repository implements the local Node.js MVP. It does not claim real hardware, MQTT, Go services, production scale, or AI diagnosis. Those remain explicit future milestones.
 
-This demo intentionally has no third-party runtime dependencies. It runs with Node.js 18+ so that the business loop can be demonstrated before adding a real board, Go services, MQTT, PostgreSQL, Docker, or cloud deployment.
+## Demonstrated operational loop
+
+```text
+Device telemetry -> reported shadow -> alert evidence -> operator acknowledgement
+-> alert resolution / OTA request -> device command polling -> staged progress
+-> success or failure -> firmware alignment -> persistent audit history
+```
 
 ## What works now
 
-- Device registry and device shadow
-- Simulated `robot-arm-01` telemetry every 1.2 seconds
-- REST endpoints for devices, telemetry, alerts, commands, and OTA jobs
-- SSE stream for dashboard updates
-- Alert rules for temperature, vibration, and offline devices
-- OTA job creation and staged device-side progress updates
-- Recent command, telemetry, and alert event history
-- Dark operations dashboard with live telemetry and event feed
-- Node test suite for the core service behavior
+- Automatic device registration and multi-device dashboard navigation
+- Persistent reported/desired device shadows and recent telemetry history
+- Temperature, vibration, and offline alert rules
+- Alert lifecycle: `open -> acknowledged -> resolved`, including retriggering
+- OTA state machine: `queued -> acknowledged -> downloading -> installing -> success|failed`
+- Idempotent command acknowledgement and progress retries
+- Complete command history and per-command progress timeline
+- JSON persistence with atomic temporary-file replacement
+- SSE updates with visible connecting, connected, and reconnecting states
+- Request validation, bounded JSON bodies, structured error codes, and `409` state conflicts
+- Domain, HTTP, persistence, and real simulator integration tests
 
-## Why this project exists
+## Run locally
 
-Typical embedded demos stop at reading a sensor or driving a peripheral. Typical web demos stop at a dashboard page. CloudEdge AI connects the two sides of the operational problem:
-
-```text
-Edge telemetry -> device shadow -> alert evidence -> operator action -> OTA command -> device acknowledgement -> rollout result
-```
-
-That makes it a useful portfolio foundation for embedded software, IoT platform, backend, realtime frontend, robot-device operations, and later AI diagnostic roles.
-
-## Run it
+Requirements: Node.js 18 or newer. There are no third-party runtime dependencies.
 
 Open two PowerShell terminals in this directory.
 
@@ -46,70 +46,86 @@ Terminal 2:
 npm run simulate
 ```
 
-Then open [http://localhost:4173](http://localhost:4173). The dashboard seeds one online demo device, so it is still explorable before the simulator starts.
+Open [http://localhost:4173](http://localhost:4173).
 
-To reset the in-memory demo state, stop `npm start` and run it again.
+Runtime state is stored in `data/platform-state.json`, which is ignored by Git. To start a deliberately clean demo, stop the service, remove that file, and restart the service.
+
+Optional environment variables are documented in [`.env.example`](.env.example). PowerShell example:
+
+```powershell
+$env:OFFLINE_AFTER_MS = "10000"
+$env:DEVICE_ID = "robot-arm-02"
+npm run simulate
+```
 
 ## Demo flow
 
-1. Start the API/dashboard service.
-2. Start the device simulator; the telemetry table and line chart update live.
-3. Click `Create OTA job` on the device card.
-4. The service queues an OTA command; the simulator receives it and moves through `queued`, `downloading`, `installing`, and `success`.
-5. Click `Inject temperature alert` to create a visible alert and observe the event stream.
+1. Start the service and simulator.
+2. Select a device and watch telemetry update in realtime.
+3. Create an OTA job with a target version.
+4. Observe queued, acknowledged, downloading, installing, and success states.
+5. Inject a high-temperature alert, acknowledge it, and resolve it.
+6. Stop the simulator long enough to create an offline alert; restart it to observe automatic recovery.
+7. Restart the service and confirm that devices, alerts, commands, telemetry, and events are restored.
+
+## Verification
+
+```powershell
+npm test
+npm run test:integration
+```
+
+The integration suite starts a real HTTP server and device simulator process, completes an OTA job to `success 100%`, verifies reported/desired firmware alignment, and restores the result from a temporary JSON state file.
 
 ## Project structure
 
 ```text
 CloudEdge-AI/
   server/
-    domain/           Business state and alert/OTA rules
-    http.js           REST + SSE transport
-    index.js          API server entry point
-  simulator/          Runnable edge-device simulator
-  web/                Dependency-free operations dashboard
-  docs/               Architecture, roadmap, and agent handoff prompt
-  tests/              Node test coverage for core domain behavior
+    domain/                 Device, telemetry, alert, command, and OTA rules
+    persistence/            JSON state repository
+    http.js                 REST, validation, static files, and SSE transport
+    index.js                Runtime composition and offline scheduler
+  simulator/                Runnable edge-device simulator
+  web/                      Dependency-free multi-device operations dashboard
+  tests/                    Domain, HTTP, persistence, and simulator tests
+  docs/                     Architecture, API contract, roadmap, and handoff guide
 ```
 
-## API summary
+## API
+
+The full contract and state-transition rules are documented in [docs/API_CONTRACT.md](docs/API_CONTRACT.md).
+
+Important endpoints include:
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | Service health check |
-| `GET` | `/api/devices` | List devices and shadows |
-| `GET` | `/api/devices/:id` | Device detail and recent telemetry |
-| `POST` | `/api/telemetry` | Device telemetry ingestion |
-| `GET` | `/api/commands?deviceId=...` | Edge device polls queued commands |
-| `POST` | `/api/commands/:id/ack` | Edge device acknowledges a command |
-| `POST` | `/api/ota-jobs` | Create an OTA command/job |
-| `GET` | `/api/alerts` | List alerts |
-| `GET` | `/api/events/history` | List recent platform events |
-| `POST` | `/api/demo/inject-alert` | Create a high-temperature demo alert |
-| `GET` | `/api/events` | SSE stream for live dashboard updates |
+| `GET` | `/api/devices` | List registered devices and latest telemetry |
+| `GET` | `/api/devices/:id` | Device detail, telemetry, active commands, and command history |
+| `POST` | `/api/telemetry` | Ingest telemetry and reported shadow state |
+| `GET` | `/api/commands?deviceId=...` | Poll active commands |
+| `GET` | `/api/commands?deviceId=...&scope=all` | Read complete command history |
+| `POST` | `/api/ota-jobs` | Create an OTA command |
+| `POST` | `/api/commands/:id/ack` | Acknowledge command receipt |
+| `POST` | `/api/commands/:id/progress` | Report staged progress or terminal result |
+| `POST` | `/api/alerts/:id/acknowledge` | Acknowledge an open alert |
+| `POST` | `/api/alerts/:id/resolve` | Resolve an acknowledged alert |
+| `GET` | `/api/events` | Subscribe to the SSE event stream |
 
-## What changes for the formal version
+## Current boundaries
 
-The MVP uses in-memory state and HTTP polling to make the demo small. The formal architecture is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md):
+- JSON persistence is synchronous and intended for a single local process.
+- There is no device authentication, tenant isolation, firmware signing, real artifact transfer, rollback, or resumable OTA.
+- Online/offline liveness uses the server receive time; device timestamps are retained only as observation time and are not yet protected by clock-skew policy or device identity verification.
+- There is no implemented AI diagnostic service. Future AI work must begin read-only and cite telemetry, logs, and documents.
+- No scale, uptime, hardware, or OTA reliability claims should be made without measured evidence.
 
-- Node service -> Go/Gin services
-- in-memory state -> PostgreSQL + Redis
-- simulator HTTP -> STM32/ESP32 MQTT device agent
-- in-process events -> EMQX/MQTT + event consumers
-- browser dashboard remains React + TypeScript
-- metrics -> Prometheus + Grafana
+The formal architecture direction is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Read [docs/AGENT_HANDOFF_PROMPT.md](docs/AGENT_HANDOFF_PROMPT.md) before asking another agent to continue the project.
+## Public repository safety
 
-## Public repository and safety
-
-This repository is designed to be published publicly. It contains simulated device data only. It must not contain production device credentials, broker addresses, private firmware binaries, internal company documents, user data, or real customer telemetry.
-
-- Store local secrets only in `.env`; it is ignored by Git.
-- Start from `.env.example` when environment variables are introduced.
-- Keep firmware artifacts out of the repository unless they are independently licensed and safe to distribute.
-- Do not make AI diagnosis capable of issuing device-control commands without explicit human approval, audit logs, and idempotency safeguards.
+Only simulated data belongs in this repository. Do not commit `.env`, API keys, broker credentials, production addresses, private firmware, company documents, user data, or customer telemetry.
 
 ## License
 
-Released under the [Apache License 2.0](LICENSE). You may use, modify, and publish the project while preserving the license and notices.
+Released under the [Apache License 2.0](LICENSE).

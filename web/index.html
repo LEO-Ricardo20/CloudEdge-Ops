@@ -7,58 +7,138 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main class="shell">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <main id="main-content" class="shell" tabindex="-1">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark">CE</span>
-        <div><strong>CloudEdge AI</strong><span>Device operations MVP</span></div>
+        <span class="brand-mark" aria-hidden="true">CE</span>
+        <div>
+          <strong>CloudEdge AI</strong>
+          <span>Device operations</span>
+        </div>
       </div>
-      <div class="connection"><span id="connection-dot"></span><span id="connection-label">Connecting</span></div>
+      <div id="connection" class="connection connecting" role="status" aria-live="polite">
+        <span id="connection-dot" aria-hidden="true"></span>
+        <span id="connection-label">实时连接中</span>
+      </div>
     </header>
 
     <section class="page-heading">
       <div>
-        <p class="eyebrow">Operations overview</p>
+        <p class="eyebrow">Operations</p>
         <h1>设备运行控制台</h1>
-        <p>实时查看设备影子、遥测趋势、告警与 OTA 任务。</p>
       </div>
-      <button id="inject-alert" class="button secondary">Inject temperature alert</button>
+      <button id="inject-alert" class="button secondary" type="button">注入高温告警</button>
     </section>
 
-    <section id="summary" class="summary-grid" aria-label="platform summary"></section>
+    <div id="page-error" class="notice error" role="alert" hidden></div>
+    <div id="page-status" class="notice" role="status" aria-live="polite">正在加载运行数据...</div>
 
-    <section class="content-grid">
-      <article class="panel device-panel">
-        <div class="panel-heading"><div><p class="eyebrow">Device shadow</p><h2 id="device-name">Loading device</h2></div><span id="device-status" class="status">Unknown</span></div>
-        <div id="device-meta" class="device-meta"></div>
-        <div class="shadow-grid">
-          <div><p>Reported firmware</p><strong id="reported-firmware">-</strong></div>
-          <div><p>Desired firmware</p><strong id="desired-firmware">-</strong></div>
-          <div><p>Last seen</p><strong id="last-seen">-</strong></div>
+    <section id="summary" class="summary-grid" aria-label="平台摘要" aria-busy="true"></section>
+
+    <section class="workspace">
+      <aside class="panel devices-panel" aria-labelledby="devices-heading">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">Fleet</p>
+            <h2 id="devices-heading">设备列表</h2>
+          </div>
+          <span id="device-count" class="badge">0</span>
         </div>
-        <div class="actions"><button id="create-ota" class="button">Create OTA job</button><span id="ota-status" class="action-status"></span></div>
-      </article>
+        <label class="visually-hidden" for="device-search">搜索设备</label>
+        <input id="device-search" class="search-input" type="search" placeholder="搜索名称、ID 或类型" autocomplete="off">
+        <nav id="device-list" class="device-list" aria-label="选择设备"></nav>
+      </aside>
 
-      <article class="panel telemetry-panel">
-        <div class="panel-heading"><div><p class="eyebrow">Realtime telemetry</p><h2>温度趋势</h2></div><span id="temperature-value" class="metric-value">-</span></div>
-        <svg id="telemetry-chart" viewBox="0 0 620 180" role="img" aria-label="Temperature trend chart"></svg>
-        <div id="metric-cards" class="metric-cards"></div>
-      </article>
-    </section>
+      <div class="device-workspace">
+        <article class="panel device-panel" aria-labelledby="device-name">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Device shadow</p>
+              <h2 id="device-name">未选择设备</h2>
+            </div>
+            <span id="device-status" class="status">未知</span>
+          </div>
+          <div id="device-meta" class="device-meta"></div>
+          <div id="device-empty" class="empty-state">选择一台设备查看运行状态。</div>
+          <div id="device-details" hidden>
+            <dl class="shadow-grid">
+              <div><dt>已上报固件</dt><dd id="reported-firmware">-</dd></div>
+              <div><dt>目标固件</dt><dd id="desired-firmware">-</dd></div>
+              <div><dt>最后在线</dt><dd id="last-seen">-</dd></div>
+              <div><dt>运行模式</dt><dd id="device-mode">-</dd></div>
+            </dl>
+          </div>
+        </article>
 
-    <section class="lower-grid">
-      <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">Alert center</p><h2>告警与证据</h2></div><span id="alert-count" class="badge">0</span></div>
-        <div id="alerts" class="feed empty">No active alerts.</div>
-      </article>
-      <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">Event stream</p><h2>运行事件</h2></div></div>
-        <div id="events" class="feed empty">Waiting for events.</div>
-      </article>
+        <article class="panel telemetry-panel" aria-labelledby="telemetry-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Realtime telemetry</p>
+              <h2 id="telemetry-heading">温度趋势</h2>
+            </div>
+            <span id="temperature-value" class="metric-value">-</span>
+          </div>
+          <svg id="telemetry-chart" viewBox="0 0 620 180" role="img" aria-label="所选设备温度趋势图"></svg>
+          <div id="metric-list" class="metric-list"></div>
+        </article>
+
+        <section class="operations-grid" aria-label="设备操作">
+          <article class="panel ota-panel" aria-labelledby="ota-heading">
+            <div class="panel-heading compact">
+              <div>
+                <p class="eyebrow">OTA deployment</p>
+                <h2 id="ota-heading">固件升级</h2>
+              </div>
+            </div>
+            <form id="ota-form" class="ota-form">
+              <label for="target-version">目标版本</label>
+              <div class="field-action">
+                <input id="target-version" name="targetVersion" type="text" maxlength="64" placeholder="例如 0.2.0" required disabled>
+                <button id="create-ota" class="button" type="submit" disabled>创建任务</button>
+              </div>
+              <p id="ota-error" class="field-error" role="alert" hidden></p>
+            </form>
+            <div id="active-command" class="active-command empty-state">当前没有进行中的 OTA 任务。</div>
+          </article>
+
+          <article class="panel commands-panel" aria-labelledby="commands-heading">
+            <div class="panel-heading compact">
+              <div>
+                <p class="eyebrow">Command audit</p>
+                <h2 id="commands-heading">命令记录</h2>
+              </div>
+              <span id="command-count" class="badge">0</span>
+            </div>
+            <div id="commands" class="command-list empty-state">暂无命令记录。</div>
+          </article>
+        </section>
+
+        <section class="lower-grid">
+          <article class="panel alerts-panel" aria-labelledby="alerts-heading">
+            <div class="panel-heading compact">
+              <div>
+                <p class="eyebrow">Alert center</p>
+                <h2 id="alerts-heading">告警与证据</h2>
+              </div>
+              <span id="alert-count" class="badge">0</span>
+            </div>
+            <div id="alerts" class="feed empty-state">暂无告警。</div>
+          </article>
+
+          <article class="panel events-panel" aria-labelledby="events-heading">
+            <div class="panel-heading compact">
+              <div>
+                <p class="eyebrow">Event stream</p>
+                <h2 id="events-heading">运行事件</h2>
+              </div>
+            </div>
+            <div id="events" class="feed empty-state">等待事件。</div>
+          </article>
+        </section>
+      </div>
     </section>
   </main>
-  <template id="alert-template"><div class="alert-row"><span class="severity"></span><div><strong class="alert-title"></strong><p class="alert-evidence"></p></div><button class="ack-button" type="button">Acknowledge</button></div></template>
   <script src="/app.js"></script>
 </body>
 </html>
-

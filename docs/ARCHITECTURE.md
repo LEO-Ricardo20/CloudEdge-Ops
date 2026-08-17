@@ -2,21 +2,54 @@
 
 ## Product statement
 
-CloudEdge AI is a cloud-edge platform for connected industrial or robot devices. It gives an operator a reliable path from device telemetry to alerting, device control, OTA rollout, and evidence-backed AI diagnostics.
+CloudEdge AI is a cloud-edge operations platform for connected industrial and robot devices. The current repository proves a reliable local path from telemetry to device state, evidence-bearing alerts, operator actions, OTA command delivery, persistent audit history, and realtime visualization.
 
-## First MVP: implemented in this repository
+## Implemented local architecture
 
 ```mermaid
 flowchart LR
-  Edge[Node device simulator] -->|HTTP telemetry| API[Node API service]
-  API --> Shadow[In-memory device shadow]
-  API --> Rules[Alert and OTA rules]
-  API -->|SSE events| UI[Browser operations dashboard]
-  Edge -->|Poll queued command| API
-  UI -->|Create OTA / inject alert| API
+  Edge[Node device simulator] -->|HTTP telemetry| API[Node HTTP service]
+  Edge -->|Poll active commands| API
+  API --> Domain[Device, alert and OTA domain]
+  Domain --> JSON[(Atomic JSON state file)]
+  API -->|REST| UI[Browser operations dashboard]
+  API -->|SSE events| UI
+  UI -->|Acknowledge / resolve / create OTA| API
+  Timer[Offline evaluation timer] --> Domain
 ```
 
-The MVP uses HTTP and in-memory state intentionally. Its goal is to prove the user-facing operational loop with a visible demo, not to imitate production infrastructure prematurely.
+The MVP intentionally uses Node.js, HTTP polling, SSE, and a JSON repository. The domain, HTTP transport, persistence, simulator, and UI remain separate so each can be replaced without changing the operational semantics.
+
+## Runtime responsibilities
+
+| Component | Responsibility |
+| --- | --- |
+| `server/domain/platform.js` | Device shadow, telemetry history, alert lifecycle, OTA state machine, events, snapshots |
+| `server/persistence/json-file-repository.js` | Load state and atomically replace the local JSON state file |
+| `server/http.js` | REST routing, validation, error mapping, SSE, and static asset serving |
+| `server/index.js` | Compose runtime dependencies and schedule offline evaluation |
+| `simulator/device-simulator.js` | Report telemetry, poll commands, acknowledge and advance OTA stages |
+| `web/` | Multi-device operations UI and realtime status |
+
+## Domain invariants
+
+- Active OTA states are `queued`, `acknowledged`, `downloading`, and `installing`.
+- Terminal OTA states are `success` and `failed`.
+- Progress cannot regress; skipped stages and invalid terminal updates are rejected with `409`.
+- Identical acknowledgement and progress retries do not duplicate history or events.
+- Only one OTA command may be active for a device.
+- Alerts move through `open`, `acknowledged`, and `resolved`.
+- A manually resolved threshold alert can be triggered again as a new alert.
+- An offline alert is deduplicated while active and automatically resolved when telemetry resumes.
+- Every domain mutation is persisted before realtime subscribers are notified.
+
+Detailed request/response behavior is in [API_CONTRACT.md](API_CONTRACT.md).
+
+## Persisted state
+
+The versioned snapshot contains devices, recent telemetry, alerts, commands including histories, and compact audit events. The default file is `data/platform-state.json`; it is intentionally ignored by Git.
+
+Writes use a same-directory temporary file followed by rename. Invalid JSON is reported at startup rather than silently discarded. This is appropriate for one local demo process, not for concurrent services or high ingestion rates.
 
 ## Formal architecture after the MVP
 
@@ -24,108 +57,40 @@ The MVP uses HTTP and in-memory state intentionally. Its goal is to prove the us
 flowchart LR
   subgraph Edge[Edge Device]
     Firmware[STM32 or ESP32 firmware]
-    Agent[Protocol and OTA agent]
-    Sensors[Sensor / actuator drivers]
-    Firmware --> Agent
-    Sensors --> Firmware
+    Agent[Identity, protocol and OTA agent]
+    Sensors[Sensor and actuator drivers]
+    Sensors --> Firmware --> Agent
   end
 
-  Agent -->|mTLS MQTT| Broker[EMQX MQTT broker]
-  Broker --> Ingest[Go telemetry ingestion service]
+  Agent -->|mTLS MQTT| Broker[EMQX]
+  Broker --> Ingest[Go telemetry ingestion]
   Broker --> Command[Go command and OTA service]
   Ingest --> PG[(PostgreSQL / TimescaleDB)]
   Ingest --> Redis[(Redis)]
   Ingest --> Alert[Alert rules service]
-  Alert --> PG
-  Command --> Object[Object storage for firmware]
-  Command --> Broker
+  Command --> Object[Signed firmware storage]
   API[Go BFF / API gateway] --> PG
   API --> Redis
-  API --> AI[AI diagnostic service]
-  AI --> Logs[Telemetry, logs, documents]
-  Web[React + TypeScript dashboard] -->|REST / SSE| API
-  Metrics[Prometheus + Grafana] --> Ingest
+  Web[React and TypeScript dashboard] -->|REST / SSE| API
+  Metrics[Prometheus and Grafana] --> Ingest
   Metrics --> Command
+  API --> AI[Read-only diagnostic service]
+  AI --> Evidence[Telemetry, logs and cited documents]
 ```
 
-## Domain model
+This diagram is a roadmap, not an implementation claim.
 
-| Entity | What it represents | MVP status |
-| --- | --- | --- |
-| Device | Device identity, type, firmware version, desired state | Implemented |
-| Device shadow | Last reported/desired state and connection status | Implemented |
-| Telemetry | Timestamped metrics such as temperature and vibration | Implemented in memory |
-| Alert | Rule violation, severity, lifecycle, evidence | Implemented |
-| Command | A desired action for an edge device | Implemented |
-| OTA job | Firmware version rollout, progress, result | Implemented as command progress |
-| Audit event | Who changed what and when | Next step |
-| Tenant / organization | User and device isolation | Formal version |
-| Diagnostic case | AI-generated fault explanation grounded in evidence | Formal version |
+## Next milestones
 
-## Device message contracts
+1. Add backup rotation and explicit state-schema migration for the local repository.
+2. Introduce device credentials, server receive timestamps, rate limits, and command expiry.
+3. Add Docker Compose with PostgreSQL, Redis, and EMQX.
+4. Port the proven domain behavior to Go while retaining the current contract tests.
+5. Integrate one ESP32 device before STM32/FreeRTOS work.
+6. Add observability and only then a read-only, evidence-backed diagnostic workflow.
 
-### Telemetry ingestion
+## Boundaries
 
-```json
-{
-  "deviceId": "robot-arm-01",
-  "timestamp": "2026-08-12T10:00:00.000Z",
-  "metrics": {
-    "temperatureC": 43.1,
-    "vibrationMmS": 2.4,
-    "batteryPct": 84,
-    "motorRpm": 1260
-  },
-  "reportedState": {
-    "mode": "auto",
-    "firmwareVersion": "0.1.0"
-  }
-}
-```
-
-### OTA command
-
-```json
-{
-  "id": "cmd_xxx",
-  "type": "ota",
-  "deviceId": "robot-arm-01",
-  "payload": {
-    "targetVersion": "0.2.0",
-    "artifactUrl": "https://example.invalid/firmware/0.2.0.bin",
-    "checksum": "demo-checksum"
-  },
-  "status": "queued"
-}
-```
-
-## Priority roadmap
-
-### Milestone 1: operational MVP
-
-- Finish the current demo and record a 2-minute video.
-- Add persistent JSON storage only if needed for the demo.
-- Add command audit history and alert acknowledge/resolve behavior.
-- Produce one architecture diagram and one API contract document.
-
-### Milestone 2: formal backend and device protocol
-
-- Port `server/domain/platform.js` behavior to Go/Gin.
-- Add PostgreSQL migrations and Redis cache/rate limiting.
-- Add EMQX and MQTT topic permissions.
-- Replace the Node simulator with an ESP32 or STM32 telemetry/command agent.
-- Add device identity, command idempotency, checksums, retry and resumable OTA.
-
-### Milestone 3: observability and AI diagnosis
-
-- Add Prometheus metrics, Grafana dashboard and structured logs.
-- Add device log ingestion and a fault evidence timeline.
-- Add RAG over datasheets/manuals and read-only diagnostic Tool Calling.
-- Evaluate citation accuracy, tool-call success rate, latency and unsupported-answer rate.
-
-## Project boundaries
-
-- Do not claim large-scale device counts, a 72-hour run, real OTA success rates, ROS integration, or an AI diagnostic model until they are genuinely measured and documented.
-- AI diagnosis must begin read-only. Any control action needs explicit human approval, audit logging and idempotency safeguards.
-- The first real hardware integration should use one low-cost ESP32 board before moving to STM32/FreeRTOS.
-
+- Do not claim production scale, measured uptime, real OTA reliability, hardware integration, or AI accuracy without evidence.
+- AI diagnosis must not issue control commands. Future control actions require explicit human approval, authorization, audit logging, expiry, and idempotency.
+- Real OTA requires signed artifacts, checksum verification, rollback, retry, resume, and secure device identity.

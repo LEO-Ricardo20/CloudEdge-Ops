@@ -14,7 +14,7 @@ Build a visible cloud-edge device operations loop: device data enters the platfo
 | --- | --- | --- |
 | Device | STM32G4 + FreeRTOS, CAN/RS485, MQTT | Node simulator, then ESP32 |
 | Ingestion | Go/Gin + MQTT consumers | Node HTTP endpoint |
-| Data | PostgreSQL, Redis, object storage | In-memory state |
+| Data | PostgreSQL, Redis, object storage | Atomic local JSON state |
 | Realtime | SSE/WebSocket | SSE |
 | Web | React + TypeScript | Vanilla browser UI |
 | Operations | Prometheus, Grafana, Docker Compose | API health + event feed |
@@ -111,4 +111,3 @@ Minimum proof: ROS 2 simulation, state/diagnostic node, injected fault, rosbag r
 1. Finish CloudEdge AI MVP and attach it to your existing embedded/IoT background.
 2. Build MetaCore AI only to a verifiable RAG -> structured plan -> compile loop.
 3. Pick exactly one Priority 3 project when a target company or role becomes clear.
-
