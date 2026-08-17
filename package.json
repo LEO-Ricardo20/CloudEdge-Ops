@@ -2,7 +2,7 @@
   "name": "cloudedge-ops",
   "version": "0.2.0",
   "private": true,
-  "description": "Persistent cloud-edge device operations MVP with telemetry, alerting, OTA and realtime observability",
+  "description": "Cloud-edge device operations platform for telemetry, alerts, OTA workflows, persistence and realtime observability | 云边设备运维平台，支持遥测、告警、OTA、状态持久化与实时可观测性",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
