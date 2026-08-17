@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CloudEdge AI | Device Operations</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">CE</span>
+        <div><strong>CloudEdge AI</strong><span>Device operations MVP</span></div>
+      </div>
+      <div class="connection"><span id="connection-dot"></span><span id="connection-label">Connecting</span></div>
+    </header>
+
+    <section class="page-heading">
+      <div>
+        <p class="eyebrow">Operations overview</p>
+        <h1>设备运行控制台</h1>
+        <p>实时查看设备影子、遥测趋势、告警与 OTA 任务。</p>
+      </div>
+      <button id="inject-alert" class="button secondary">Inject temperature alert</button>
+    </section>
+
+    <section id="summary" class="summary-grid" aria-label="platform summary"></section>
+
+    <section class="content-grid">
+      <article class="panel device-panel">
+        <div class="panel-heading"><div><p class="eyebrow">Device shadow</p><h2 id="device-name">Loading device</h2></div><span id="device-status" class="status">Unknown</span></div>
+        <div id="device-meta" class="device-meta"></div>
+        <div class="shadow-grid">
+          <div><p>Reported firmware</p><strong id="reported-firmware">-</strong></div>
+          <div><p>Desired firmware</p><strong id="desired-firmware">-</strong></div>
+          <div><p>Last seen</p><strong id="last-seen">-</strong></div>
+        </div>
+        <div class="actions"><button id="create-ota" class="button">Create OTA job</button><span id="ota-status" class="action-status"></span></div>
+      </article>
+
+      <article class="panel telemetry-panel">
+        <div class="panel-heading"><div><p class="eyebrow">Realtime telemetry</p><h2>温度趋势</h2></div><span id="temperature-value" class="metric-value">-</span></div>
+        <svg id="telemetry-chart" viewBox="0 0 620 180" role="img" aria-label="Temperature trend chart"></svg>
+        <div id="metric-cards" class="metric-cards"></div>
+      </article>
+    </section>
+
+    <section class="lower-grid">
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">Alert center</p><h2>告警与证据</h2></div><span id="alert-count" class="badge">0</span></div>
+        <div id="alerts" class="feed empty">No active alerts.</div>
+      </article>
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">Event stream</p><h2>运行事件</h2></div></div>
+        <div id="events" class="feed empty">Waiting for events.</div>
+      </article>
+    </section>
+  </main>
+  <template id="alert-template"><div class="alert-row"><span class="severity"></span><div><strong class="alert-title"></strong><p class="alert-evidence"></p></div><button class="ack-button" type="button">Acknowledge</button></div></template>
+  <script src="/app.js"></script>
+</body>
+</html>
+

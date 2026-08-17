@@ -1,0 +1,16 @@
+{
+  "name": "cloudedge-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CloudEdge AI cloud-edge IoT MVP demo",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "simulate": "node simulator/device-simulator.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
+
