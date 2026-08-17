@@ -2,7 +2,7 @@
 
 This guide prevents the portfolio from becoming a collection of unrelated demos. Build one shared foundation, then choose one differentiated third project based on the role you want to apply for.
 
-## Priority 1: CloudEdge AI
+## Priority 1: CloudEdge Ops
 
 ### Goal
 
@@ -108,6 +108,6 @@ Minimum proof: ROS 2 simulation, state/diagnostic node, injected fault, rosbag r
 
 ## Recommended sequence for you
 
-1. Finish CloudEdge AI MVP and attach it to your existing embedded/IoT background.
+1. Finish CloudEdge Ops MVP and attach it to your existing embedded/IoT background.
 2. Build MetaCore AI only to a verifiable RAG -> structured plan -> compile loop.
 3. Pick exactly one Priority 3 project when a target company or role becomes clear.

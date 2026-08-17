@@ -19,7 +19,7 @@ const offlineTimer = setInterval(() => platform.evaluateOfflineDevices(), offlin
 offlineTimer.unref();
 
 server.listen(port, '127.0.0.1', () => {
-  console.log(`CloudEdge AI dashboard: http://localhost:${port}`);
+  console.log(`CloudEdge Ops dashboard: http://localhost:${port}`);
   console.log(`API health: http://localhost:${port}/api/health`);
   console.log(`State file: ${stateFile}`);
 });

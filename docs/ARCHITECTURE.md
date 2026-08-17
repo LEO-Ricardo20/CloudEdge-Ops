@@ -1,8 +1,8 @@
-# CloudEdge AI Architecture
+# CloudEdge Ops Architecture
 
 ## Product statement
 
-CloudEdge AI is a cloud-edge operations platform for connected industrial and robot devices. The current repository proves a reliable local path from telemetry to device state, evidence-bearing alerts, operator actions, OTA command delivery, persistent audit history, and realtime visualization.
+CloudEdge Ops is a cloud-edge operations platform for connected industrial and robot devices. The current repository proves a reliable local path from telemetry to device state, evidence-bearing alerts, operator actions, OTA command delivery, persistent audit history, and realtime visualization.
 
 ## Implemented local architecture
 

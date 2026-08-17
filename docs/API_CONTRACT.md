@@ -1,4 +1,4 @@
-# CloudEdge AI API Contract
+# CloudEdge Ops API Contract
 
 All responses use JSON except static assets and the SSE stream. Mutation errors include an `error` message and, when available, a stable `code`.
 

@@ -98,7 +98,7 @@ function createHttpHandler(platform, webRoot, options = {}) {
       const { pathname, searchParams } = requestUrl;
 
       if (request.method === 'GET' && pathname === '/api/health') {
-        return sendJson(response, 200, { ok: true, service: 'cloudedge-ai', now: new Date().toISOString() });
+        return sendJson(response, 200, { ok: true, service: 'cloudedge-ops', now: new Date().toISOString() });
       }
 
       if (request.method === 'GET' && pathname === '/api/devices') {

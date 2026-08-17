@@ -2,11 +2,11 @@
   <a href="./README.md">English</a> | <strong>简体中文</strong>
 </p>
 
-# CloudEdge AI
+# CloudEdge Ops
 
 > 一个具备状态持久化能力的云边设备运维 MVP，覆盖遥测、设备影子、告警生命周期、OTA 工作流和实时可观测性。
 
-CloudEdge AI 是一个面向工业设备和机器人设备的作品集项目。模拟边缘设备向 Node.js 服务上报遥测；服务端维护设备影子、评估阈值与离线告警、下发可审计的 OTA 命令、持久化运行状态，并通过服务器发送事件（SSE）将变更实时推送到浏览器仪表盘。
+CloudEdge Ops 是一个面向工业设备和机器人设备的作品集项目。模拟边缘设备向 Node.js 服务上报遥测；服务端维护设备影子、评估阈值与离线告警、下发可审计的 OTA 命令、持久化运行状态，并通过服务器发送事件（SSE）将变更实时推送到浏览器仪表盘。
 
 当前仓库实现的是可在本地运行的 Node.js MVP。项目不宣称已经支持真实硬件、MQTT、Go 服务、生产级规模或 AI 诊断；这些能力仍属于明确的未来里程碑。
 
@@ -84,7 +84,7 @@ npm run test:integration
 ## 项目结构
 
 ```text
-CloudEdge-AI/
+CloudEdge-Ops/
   server/
     domain/                 设备、遥测、告警、命令和 OTA 领域规则
     persistence/            JSON 状态仓储

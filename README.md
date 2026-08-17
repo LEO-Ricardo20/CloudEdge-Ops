@@ -2,11 +2,11 @@
   <strong>English</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-# CloudEdge AI
+# CloudEdge Ops
 
 > A persistent cloud-edge device operations MVP for telemetry, device shadows, alert lifecycle management, OTA workflows, and realtime observability.
 
-CloudEdge AI is a portfolio project for connected industrial and robot devices. A simulated edge device reports telemetry to a Node.js service; the service maintains a device shadow, evaluates threshold and offline alerts, delivers auditable OTA commands, persists operational state, and streams changes to a browser dashboard through Server-Sent Events (SSE).
+CloudEdge Ops is a portfolio project for connected industrial and robot devices. A simulated edge device reports telemetry to a Node.js service; the service maintains a device shadow, evaluates threshold and offline alerts, delivers auditable OTA commands, persists operational state, and streams changes to a browser dashboard through Server-Sent Events (SSE).
 
 This repository implements the local Node.js MVP. It does not claim real hardware, MQTT, Go services, production scale, or AI diagnosis. Those remain explicit future milestones.
 
@@ -84,7 +84,7 @@ The integration suite starts a real HTTP server and device simulator process, co
 ## Project structure
 
 ```text
-CloudEdge-AI/
+CloudEdge-Ops/
   server/
     domain/                 Device, telemetry, alert, command, and OTA rules
     persistence/            JSON state repository

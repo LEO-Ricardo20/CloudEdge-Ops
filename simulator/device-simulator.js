@@ -79,7 +79,7 @@ async function loop() {
 }
 
 async function start() {
-  console.log(`CloudEdge simulator using ${baseUrl} for ${deviceId}`);
+  console.log(`CloudEdge Ops simulator using ${baseUrl} for ${deviceId}`);
   await restoreReportedFirmware();
   await loop();
   setInterval(loop, loopIntervalMs);

@@ -1,7 +1,7 @@
 # Handoff Prompt for Another Agent
 
 ```text
-You are continuing CloudEdge AI at E:\个人项目project实践\CloudEdge-AI.
+You are continuing CloudEdge Ops at E:\个人项目project实践\CloudEdge-Ops.
 
 Read completely before editing:
 - README.md
