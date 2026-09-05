@@ -107,13 +107,50 @@ test('a failed persistence write rolls back the in-memory mutation', () => {
     },
   };
   const platform = new CloudEdgePlatform({ repository });
+  const events = [];
+  platform.subscribe((event) => events.push(event));
   const request = { deviceId: 'robot-arm-01', targetVersion: '0.2.0', requestId: 'rollback-release' };
 
   assert.throws(() => platform.createOtaJob(request), /disk full/);
   assert.equal(platform.listCommands().length, 0);
   assert.equal(platform.getDevice('robot-arm-01').shadow.desired.firmwareVersion, '0.1.0');
+  assert.equal(platform.getHealth().status, 'degraded');
+  assert.equal(events.length, 0);
 
   const command = platform.createOtaJob(request);
   assert.equal(command.status, 'queued');
   assert.equal(platform.listCommands().length, 1);
+  assert.equal(platform.getHealth().status, 'ok');
+});
+
+test('failed primary replacement preserves the last committed state on disk', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudedge-write-failure-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'state.json');
+  const repository = new JsonFileRepository(file);
+  const platform = new CloudEdgePlatform({ repository });
+  const before = fs.readFileSync(file, 'utf8');
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (source, target) => {
+    if (target === file) throw Object.assign(new Error('disk unavailable'), { code: 'EIO' });
+    return rename(source, target);
+  });
+  assert.throws(() => platform.createOtaJob({ deviceId: 'robot-arm-01', targetVersion: '0.3.0' }), /disk unavailable/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  assert.equal(new CloudEdgePlatform({ repository }).listCommands().length, 0);
+  assert.equal(fs.readdirSync(directory).some((name) => name.endsWith('.tmp')), false);
+});
+
+test('recovery skips semantically invalid backups and rejects total corruption', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudedge-recovery-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'state.json');
+  const platform = new CloudEdgePlatform();
+  fs.writeFileSync(file, '{broken');
+  fs.writeFileSync(`${file}.bak.1`, '{"version":999}');
+  fs.writeFileSync(`${file}.bak.2`, JSON.stringify(platform.snapshot()));
+  const recovered = new CloudEdgePlatform({ repository: new JsonFileRepository(file) });
+  assert.equal(recovered.recovery.backupIndex, 2);
+  fs.writeFileSync(`${file}.bak.2`, '{}');
+  assert.throws(() => new CloudEdgePlatform({ repository: new JsonFileRepository(file) }), /No valid platform state/);
 });

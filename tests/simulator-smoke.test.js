@@ -25,12 +25,15 @@ async function waitFor(check, timeoutMs = 5_000) {
   throw new Error(`Timed out waiting for simulator state; last value: ${JSON.stringify(lastValue)}`);
 }
 
-test('real simulator completes an OTA job through the HTTP server and persists the result', async () => {
+for (const authMode of ['demo', 'protected']) {
+test(`real simulator completes and restores OTA in ${authMode} mode`, async () => {
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudedge-smoke-'));
   const stateFile = path.join(temporaryDirectory, 'platform-state.json');
   const repository = new JsonFileRepository(stateFile);
   const platform = new CloudEdgePlatform({ repository, offlineAfterMs: 5_000 });
-  const handler = createHttpHandler(platform, path.resolve(__dirname, '..', 'web'));
+  const handler = createHttpHandler(platform, path.resolve(__dirname, '..', 'web'), {
+    authMode, operatorToken: 'smoke-operator', deviceTokens: { 'robot-arm-01': 'smoke-device' },
+  });
   const server = http.createServer(handler);
   let simulator;
   let simulatorOutput = '';
@@ -48,6 +51,7 @@ test('real simulator completes an OTA job through the HTTP server and persists t
         ...process.env,
         CLOUDEDGE_API: baseUrl,
         DEVICE_ID: 'robot-arm-01',
+        DEVICE_TOKEN: 'smoke-device',
         SIMULATOR_INTERVAL_MS: '75',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -59,7 +63,7 @@ test('real simulator completes an OTA job through the HTTP server and persists t
     await waitFor(() => platform.getDevice('robot-arm-01').latestTelemetry);
     const createResponse = await fetch(`${baseUrl}/api/ota-jobs`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer smoke-operator' },
       body: JSON.stringify({
         deviceId: 'robot-arm-01',
         targetVersion: '0.2.0',
@@ -98,6 +102,7 @@ test('real simulator completes an OTA job through the HTTP server and persists t
         ...process.env,
         CLOUDEDGE_API: baseUrl,
         DEVICE_ID: 'robot-arm-01',
+        DEVICE_TOKEN: 'smoke-device',
         SIMULATOR_INTERVAL_MS: '75',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -115,9 +120,14 @@ test('real simulator completes an OTA job through the HTTP server and persists t
     error.message = `${error.message}\nSimulator output:\n${simulatorOutput}`;
     throw error;
   } finally {
-    if (simulator && !simulator.killed) simulator.kill();
+    if (simulator && simulator.exitCode === null && simulator.signalCode === null) {
+      const exited = once(simulator, 'exit');
+      simulator.kill();
+      await exited;
+    }
     handler.close();
     if (server.listening) await new Promise((resolve) => server.close(resolve));
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 });
+}

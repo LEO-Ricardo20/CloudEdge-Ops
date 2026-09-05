@@ -18,6 +18,8 @@ Read completely before editing:
 - web/styles.css
 
 Current implemented baseline:
+- v0.3: validated backup recovery, schema v2 migration, optional write/poll credentials, rate limits, server-owned expiry and health metrics.
+- Protected mode leaves reads and SSE public on loopback; it is not private access control.
 - Node.js 18+ with no third-party runtime dependencies.
 - Multi-device telemetry and reported/desired device shadows.
 - Temperature, vibration, and offline alerts.
@@ -45,11 +47,10 @@ Engineering requirements:
 - Do not claim Go, MQTT, hardware, production scale, or AI diagnosis is implemented.
 
 Recommended next milestone:
-1. Add state backup rotation and explicit snapshot migrations.
-2. Add device credentials, command expiry, rate limits, and server-side request identity.
-3. Add contract tests suitable for a future Go implementation.
-4. Prepare Docker Compose for PostgreSQL, Redis, and EMQX only when Docker is available.
-5. Integrate one ESP32 device before starting STM32/FreeRTOS work.
+1. Read docs/IMPROVEMENT_PLAN.md and docs/VERIFICATION.md for current acceptance evidence.
+2. Add private read authorization, token rotation and pagination before external deployment.
+3. Retain contract tests during any protocol or storage migration.
+4. Integrate one ESP32 device before starting STM32/FreeRTOS work.
 
 At completion report changed files, exact verification results, browser QA, remaining limitations, and whether any server process remains running.
 ```

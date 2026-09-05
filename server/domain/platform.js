@@ -1,10 +1,13 @@
 const crypto = require('node:crypto');
 
 const ACTIVE_COMMAND_STATUSES = ['queued', 'acknowledged', 'downloading', 'installing'];
-const TERMINAL_COMMAND_STATUSES = ['success', 'failed'];
+const TERMINAL_COMMAND_STATUSES = ['success', 'failed', 'expired'];
 const COMMAND_STATUSES = [...ACTIVE_COMMAND_STATUSES, ...TERMINAL_COMMAND_STATUSES];
 const ALERT_STATUSES = ['open', 'acknowledged', 'resolved'];
 const DEFAULT_OFFLINE_AFTER_MS = 15_000;
+const DEFAULT_COMMAND_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_COMMAND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CURRENT_SCHEMA_VERSION = 2;
 
 const DEFAULT_DEVICE = {
   id: 'robot-arm-01',
@@ -96,7 +99,7 @@ function compactEvent(event) {
 }
 
 function assertPersistedState(state) {
-  if (!isPlainObject(state) || state.version !== 1) {
+  if (!isPlainObject(state) || state.version !== CURRENT_SCHEMA_VERSION) {
     throw new Error('Unsupported or invalid persisted platform state version');
   }
   for (const field of ['devices', 'telemetry', 'alerts', 'commands', 'eventLog']) {
@@ -141,6 +144,12 @@ function assertPersistedState(state) {
       || typeof command.progress !== 'number' || !Number.isFinite(command.progress)) {
       throw new Error('Invalid persisted platform state: invalid command');
     }
+    if (command.expiresAt !== null && (typeof command.expiresAt !== 'string' || Number.isNaN(Date.parse(command.expiresAt)))) {
+      throw new Error(`Invalid persisted platform state: invalid expiresAt for ${command.id}`);
+    }
+    if (command.status === 'expired' && !command.completedAt) {
+      throw new Error(`Invalid persisted platform state: expired command missing completedAt for ${command.id}`);
+    }
     for (const entry of command.history) {
       if (!isPlainObject(entry) || !COMMAND_STATUSES.includes(entry.status)
         || typeof entry.progress !== 'number' || !Number.isFinite(entry.progress)) {
@@ -155,6 +164,29 @@ function assertPersistedState(state) {
   }
 }
 
+function migratePersistedState(state, commandTtlMs = DEFAULT_COMMAND_TTL_MS) {
+  if (!isPlainObject(state)) throw new Error('Unsupported or invalid persisted platform state version');
+  if (state.version === CURRENT_SCHEMA_VERSION) return clone(state);
+  if (state.version !== 1) throw new Error('Unsupported or invalid persisted platform state version');
+  const migrated = clone(state);
+  migrated.version = CURRENT_SCHEMA_VERSION;
+  migrated.commands = (migrated.commands || []).map((command) => {
+    const next = { ...command };
+    if (!Object.prototype.hasOwnProperty.call(next, 'expiresAt')) {
+      if (TERMINAL_COMMAND_STATUSES.includes(next.status)) {
+        next.expiresAt = null;
+      } else {
+        const created = Date.parse(next.createdAt);
+        next.expiresAt = Number.isNaN(created)
+          ? new Date(Date.now() + commandTtlMs).toISOString()
+          : new Date(created + commandTtlMs).toISOString();
+      }
+    }
+    return next;
+  });
+  return migrated;
+}
+
 class CloudEdgePlatform {
   constructor(options = {}) {
     this.now = options.now || (() => new Date());
@@ -162,6 +194,12 @@ class CloudEdgePlatform {
       ? options.offlineAfterMs
       : DEFAULT_OFFLINE_AFTER_MS;
     this.repository = options.repository || null;
+    this.commandTtlMs = Number.isFinite(options.commandTtlMs)
+      ? Math.max(1_000, Math.min(options.commandTtlMs, MAX_COMMAND_TTL_MS))
+      : DEFAULT_COMMAND_TTL_MS;
+    this.schemaVersion = CURRENT_SCHEMA_VERSION;
+    this.recovery = null;
+    this.persistenceStatus = this.repository ? 'ok' : 'memory';
     this.devices = new Map();
     this.telemetry = new Map();
     this.alerts = new Map();
@@ -174,7 +212,24 @@ class CloudEdgePlatform {
       vibrationMmS: { threshold: 7.5, severity: 'warning', title: 'High vibration' },
     };
 
-    const restored = this.repository?.load?.();
+    let restored = null;
+    if (this.repository?.loadCandidates) {
+      const loaded = this.repository.loadCandidates({
+        validator: (candidate) => {
+          const migrated = migratePersistedState(candidate, this.commandTtlMs);
+          assertPersistedState(migrated);
+          return migrated;
+        },
+      });
+      restored = loaded?.state || null;
+      this.recovery = loaded?.recovery || null;
+      if (loaded?.migrated && !loaded.recovery && this.repository.save) this.repository.save(restored);
+    } else {
+      const raw = this.repository?.load?.();
+      restored = raw ? migratePersistedState(raw, this.commandTtlMs) : null;
+      if (restored) assertPersistedState(restored);
+      if (raw && raw.version !== CURRENT_SCHEMA_VERSION && this.repository?.save) this.repository.save(restored);
+    }
     if (restored) {
       this.restoreState(restored);
     } else {
@@ -363,7 +418,10 @@ class CloudEdgePlatform {
   }
 
   createOtaJob(input) {
-    if (!this.transaction) return this.runMutation(() => this.createOtaJob(input));
+    if (!this.transaction) {
+      this.evaluateExpiredCommands();
+      return this.runMutation(() => this.createOtaJob(input));
+    }
     if (!isPlainObject(input)) {
       throw new DomainError('OTA job payload is required', { code: 'VALIDATION_ERROR' });
     }
@@ -372,6 +430,28 @@ class CloudEdgePlatform {
     const artifactUrl = optionalHttpUrl(input.artifactUrl, 'artifactUrl');
     const checksum = optionalString(input.checksum, 'checksum');
     const requestId = optionalString(input.requestId, 'requestId');
+    if (input.expiresInSeconds != null && input.expiresAt != null) {
+      throw new DomainError('expiresInSeconds and expiresAt cannot both be provided', { code: 'VALIDATION_ERROR' });
+    }
+    let expiresAt;
+    if (input.expiresAt != null) {
+      const parsed = Date.parse(input.expiresAt);
+      if (typeof input.expiresAt !== 'string' || Number.isNaN(parsed) || parsed <= this.now().getTime()
+        || parsed > this.now().getTime() + MAX_COMMAND_TTL_MS) {
+        throw new DomainError('expiresAt must be a future ISO date string', { code: 'VALIDATION_ERROR' });
+      }
+      expiresAt = new Date(parsed).toISOString();
+    } else {
+      let ttlMs = this.commandTtlMs;
+      if (input.expiresInSeconds != null) {
+        const seconds = input.expiresInSeconds;
+        if (!Number.isInteger(seconds) || seconds < 1 || seconds * 1000 > MAX_COMMAND_TTL_MS) {
+          throw new DomainError(`expiresInSeconds must be between 1 and ${MAX_COMMAND_TTL_MS / 1000}`, { code: 'VALIDATION_ERROR' });
+        }
+        ttlMs = Math.max(1_000, Math.trunc(seconds * 1000));
+      }
+      expiresAt = new Date(this.now().getTime() + ttlMs).toISOString();
+    }
     const device = this.devices.get(deviceId);
     if (!device) {
       throw new DomainError('device not found', { statusCode: 404, code: 'DEVICE_NOT_FOUND' });
@@ -415,6 +495,7 @@ class CloudEdgePlatform {
       createdAt,
       acknowledgedAt: null,
       completedAt: null,
+      expiresAt,
       history: [{ status: 'queued', progress: 0, at: createdAt }],
     };
     this.commands.set(command.id, command);
@@ -434,8 +515,29 @@ class CloudEdgePlatform {
       .map(clone);
   }
 
+  getCommand(commandId) {
+    const command = this.commands.get(commandId);
+    return command ? clone(command) : null;
+  }
+
+  evaluateExpiredCommands(referenceTime = this.now()) {
+    if (!this.transaction) return this.runMutation(() => this.evaluateExpiredCommands(referenceTime), { persistIfUnchanged: false });
+    const now = referenceTime instanceof Date ? referenceTime : new Date(referenceTime);
+    if (Number.isNaN(now.getTime())) throw new DomainError('referenceTime must be a valid date', { code: 'VALIDATION_ERROR' });
+    const expired = [];
+    for (const command of this.commands.values()) {
+      if (!ACTIVE_COMMAND_STATUSES.includes(command.status) || !command.expiresAt) continue;
+      if (Date.parse(command.expiresAt) > now.getTime()) continue;
+      if (this.transitionCommand(command, 'expired', command.progress)) expired.push(clone(command));
+    }
+    return expired;
+  }
+
   acknowledgeCommand(commandId) {
-    if (!this.transaction) return this.runMutation(() => this.acknowledgeCommand(commandId));
+    if (!this.transaction) {
+      this.evaluateExpiredCommands();
+      return this.runMutation(() => this.acknowledgeCommand(commandId));
+    }
     const command = this.commands.get(commandId);
     if (!command) return null;
     if (command.status === 'acknowledged') return clone(command);
@@ -449,6 +551,7 @@ class CloudEdgePlatform {
 
   updateCommandProgress(commandId, progress, status) {
     if (!this.transaction) {
+      this.evaluateExpiredCommands();
       return this.runMutation(() => this.updateCommandProgress(commandId, progress, status));
     }
     const command = this.commands.get(commandId);
@@ -458,7 +561,7 @@ class CloudEdgePlatform {
     }
     const normalizedProgress = progress;
     const nextStatus = status || this.inferCommandStatus(command.status, normalizedProgress);
-    if (!COMMAND_STATUSES.includes(nextStatus) || nextStatus === 'queued' || nextStatus === 'acknowledged') {
+    if (!['downloading', 'installing', 'success', 'failed'].includes(nextStatus)) {
       throw new DomainError(`invalid progress status: ${nextStatus}`, { code: 'VALIDATION_ERROR' });
     }
 
@@ -509,6 +612,25 @@ class CloudEdgePlatform {
     if (typeof listener !== 'function') throw new TypeError('listener must be a function');
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  getHealth() {
+    return {
+      status: this.persistenceStatus === 'error' ? 'degraded' : 'ok',
+      persistence: this.persistenceStatus,
+      recovery: this.recovery,
+      schemaVersion: this.schemaVersion,
+    };
+  }
+
+  getMetrics() {
+    const commands = [...this.commands.values()];
+    return {
+      devices: this.devices.size,
+      activeCommands: commands.filter((command) => ACTIVE_COMMAND_STATUSES.includes(command.status)).length,
+      terminalCommands: commands.filter((command) => TERMINAL_COMMAND_STATUSES.includes(command.status)).length,
+      unresolvedAlerts: [...this.alerts.values()].filter((alert) => alert.status !== 'resolved').length,
+    };
   }
 
   evaluateTelemetryRules(event) {
@@ -591,10 +713,10 @@ class CloudEdgePlatform {
     }
 
     const allowedNext = {
-      queued: ['acknowledged'],
-      acknowledged: ['downloading'],
-      downloading: ['downloading', 'installing'],
-      installing: ['installing', 'success', 'failed'],
+      queued: ['acknowledged', 'expired'],
+      acknowledged: ['downloading', 'expired'],
+      downloading: ['downloading', 'installing', 'expired'],
+      installing: ['installing', 'success', 'failed', 'expired'],
     }[command.status] || [];
     if (!allowedNext.includes(nextStatus)) {
       throw conflict(`cannot transition command from ${command.status} to ${nextStatus}`);
@@ -662,7 +784,7 @@ class CloudEdgePlatform {
 
   snapshot() {
     return {
-      version: 1,
+      version: CURRENT_SCHEMA_VERSION,
       devices: clone([...this.devices.values()]),
       telemetry: clone([...this.telemetry.entries()]),
       alerts: clone([...this.alerts.values()]),
@@ -672,7 +794,14 @@ class CloudEdgePlatform {
   }
 
   persist() {
-    if (this.repository?.save) this.repository.save(this.snapshot());
+    if (!this.repository?.save) return;
+    try {
+      this.repository.save(this.snapshot());
+      this.persistenceStatus = 'ok';
+    } catch (error) {
+      this.persistenceStatus = 'error';
+      throw error;
+    }
   }
 
   runMutation(callback, { persistIfUnchanged = true } = {}) {
@@ -723,5 +852,9 @@ module.exports = {
   COMMAND_STATUSES,
   DEFAULT_DEVICE,
   DEFAULT_OFFLINE_AFTER_MS,
+  DEFAULT_COMMAND_TTL_MS,
+  CURRENT_SCHEMA_VERSION,
   DomainError,
+  migratePersistedState,
+  assertPersistedState,
 };

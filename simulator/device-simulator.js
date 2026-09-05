@@ -1,5 +1,6 @@
 const baseUrl = process.env.CLOUDEDGE_API || 'http://127.0.0.1:4173';
 const deviceId = process.env.DEVICE_ID || 'robot-arm-01';
+const deviceToken = process.env.DEVICE_TOKEN || '';
 const configuredInterval = Number(process.env.SIMULATOR_INTERVAL_MS);
 const loopIntervalMs = Number.isFinite(configuredInterval) && configuredInterval >= 50 ? configuredInterval : 1200;
 
@@ -18,8 +19,9 @@ function metrics() {
 
 async function request(path, options = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
+    signal: AbortSignal.timeout(10_000),
+    headers: { 'Content-Type': 'application/json', ...(deviceToken ? { Authorization: `Bearer ${deviceToken}` } : {}), ...(options.headers || {}) },
   });
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || `${response.status} ${response.statusText}`);
@@ -81,8 +83,10 @@ async function loop() {
 async function start() {
   console.log(`CloudEdge Ops simulator using ${baseUrl} for ${deviceId}`);
   await restoreReportedFirmware();
-  await loop();
-  setInterval(loop, loopIntervalMs);
+  while (true) {
+    await loop();
+    await new Promise((resolve) => setTimeout(resolve, loopIntervalMs));
+  }
 }
 
 start();

@@ -34,7 +34,7 @@ The MVP intentionally uses Node.js, HTTP polling, SSE, and a JSON repository. Th
 ## Domain invariants
 
 - Active OTA states are `queued`, `acknowledged`, `downloading`, and `installing`.
-- Terminal OTA states are `success` and `failed`.
+- Terminal OTA states are `success`, `failed`, and server-owned `expired`.
 - Progress cannot regress; skipped stages and invalid terminal updates are rejected with `409`.
 - Identical acknowledgement and progress retries do not duplicate history or events.
 - Only one OTA command may be active for a device.
@@ -49,7 +49,9 @@ Detailed request/response behavior is in [API_CONTRACT.md](API_CONTRACT.md).
 
 The versioned snapshot contains devices, recent telemetry, alerts, commands including histories, and compact audit events. The default file is `data/platform-state.json`; it is intentionally ignored by Git.
 
-Writes use a same-directory temporary file followed by rename. Invalid JSON is reported at startup rather than silently discarded. This is appropriate for one local demo process, not for concurrent services or high ingestion rates.
+Writes first prepare a same-directory temporary file, rotate three backups, copy the committed primary into the newest backup, then atomically replace the primary. The primary remains available if replacement fails. Startup validates the primary then each backup and migrates v1 snapshots to schema v2. If no valid snapshot exists, startup fails explicitly. This supports one local demo process; it does not provide multi-process locking or power-loss durability guarantees.
+
+Persistence failure rolls back in-memory state and suppresses subscriber events. Health becomes degraded until a successful save. Offline and expiry scheduler errors are caught so transient storage failures do not terminate the process.
 
 ## Formal architecture after the MVP
 
@@ -82,12 +84,13 @@ This diagram is a roadmap, not an implementation claim.
 
 ## Next milestones
 
-1. Add backup rotation and explicit state-schema migration for the local repository.
-2. Introduce device credentials, server receive timestamps, rate limits, and command expiry.
-3. Add Docker Compose with PostgreSQL, Redis, and EMQX.
-4. Port the proven domain behavior to Go while retaining the current contract tests.
-5. Integrate one ESP32 device before STM32/FreeRTOS work.
-6. Add observability and only then a read-only, evidence-backed diagnostic workflow.
+1. Add private read access, credential rotation, pagination and audit retention.
+2. Add Docker Compose with PostgreSQL and MQTT after measuring the local implementation.
+3. Integrate one ESP32 device with a verified firmware transport before STM32/FreeRTOS work.
+4. Add read-only, evidence-backed diagnosis after collecting real operational evidence.
+5. Consider a Go/React migration only when justified by measured requirements, preserving contract tests.
+
+The v0.3 release implements backup rotation, schema migration, optional write credentials, receive timestamps, rate limits, command expiry and health metrics. See [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) for acceptance gates.
 
 ## Boundaries
 

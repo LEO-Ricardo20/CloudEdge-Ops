@@ -10,6 +10,8 @@ CloudEdge Ops 是一个面向工业设备和机器人设备的作品集项目。
 
 当前仓库实现的是可在本地运行的 Node.js MVP。项目不宣称已经支持真实硬件、MQTT、Go 服务、生产级规模或 AI 诊断；这些能力仍属于明确的未来里程碑。
 
+当前版本：**v0.3.0**，原项目名称为 CloudEdge AI。参见[完善计划与验收标准](docs/IMPROVEMENT_PLAN.md)和[更新记录](CHANGELOG.md)。
+
 ## 已验证的业务闭环
 
 ```text
@@ -31,10 +33,13 @@ CloudEdge Ops 是一个面向工业设备和机器人设备的作品集项目。
 - SSE 实时更新，以及连接中、已连接和重连中的可见状态
 - 请求输入校验、有大小限制的 JSON 请求体、结构化错误码和 `409` 状态冲突
 - 领域层、HTTP、持久化和真实模拟器集成测试
+- 三代状态备份、经过校验的自动恢复及 v1 到 v2 数据迁移
+- 可选操作员/设备 Token，保护写操作与设备命令轮询
+- 服务端控制的命令过期、请求追踪、限流及健康/运行指标接口
 
 ## 本地运行
 
-环境要求：Node.js 18 或更高版本。项目没有第三方运行时依赖。
+环境要求：Node.js 18 或更高版本，推荐 Node.js 22 或 24 LTS；CI 覆盖这两个版本的 Windows 和 Linux 环境。项目没有第三方运行时依赖。
 
 在项目目录中打开两个 PowerShell 终端。
 
@@ -52,7 +57,7 @@ npm run simulate
 
 浏览器访问 [http://localhost:4173](http://localhost:4173)。
 
-运行状态保存在 `data/platform-state.json`，该文件已被 Git 忽略。如果需要从全新演示状态开始，请先停止服务，删除该文件，然后重新启动服务。
+运行状态保存在 `data/platform-state.json`，另有 `.bak.1` 至 `.bak.3` 三代备份，均被 Git 忽略。主文件缺失或无效时，会从最新的有效备份恢复。需要全新演示状态时，可设置一个新的 `STATE_FILE` 路径后启动，保留原有数据。
 
 可选环境变量记录在 [`.env.example`](.env.example) 中。PowerShell 示例：
 
@@ -61,6 +66,28 @@ $env:OFFLINE_AFTER_MS = "10000"
 $env:DEVICE_ID = "robot-arm-02"
 npm run simulate
 ```
+
+环境变量只影响当前终端启动的进程，`OFFLINE_AFTER_MS` 应在服务端终端设置。项目不会自动加载 `.env`，请使用 PowerShell 环境变量，或在 Node.js 22+ 下运行 `node --env-file=.env server/index.js`。
+
+### 受保护的本地演示
+
+服务端终端（替换示例 Token）：
+
+```powershell
+$env:AUTH_MODE = "protected"
+$env:OPERATOR_TOKEN = "local-operator-example"
+$env:DEVICE_TOKENS = '{"robot-arm-01":"local-device-example"}'
+npm start
+```
+
+模拟器终端：
+
+```powershell
+$env:DEVICE_TOKEN = "local-device-example"
+npm run simulate
+```
+
+在控制台访问设置中填写操作员 Token，凭据只保存在当前页面内存中。**受保护模式校验写操作及设备命令轮询；设备详情、告警、事件、指标和 SSE 仍可在本地服务上公开读取。** 它尚不具备私有化或多租户部署能力。认证配置无效时拒绝启动。写操作按类别与身份/IP 默认限制为每分钟 1,000 次，超限返回 `429` 和 `Retry-After`。
 
 ## 演示流程
 
@@ -119,8 +146,8 @@ CloudEdge-Ops/
 ## 当前边界
 
 - JSON 持久化采用同步方式，仅面向单个本地进程。
-- 尚未实现设备身份认证、租户隔离、固件签名、真实固件传输、回滚或可恢复 OTA。
-- 在线/离线判定使用服务端接收时间；设备时间戳只作为观测时间保留，目前还没有时钟偏差策略或设备身份校验保护。
+- 已有可选的设备 Token 校验；尚未实现租户隔离、私有读取权限、TLS、固件签名、真实固件传输、回滚或可恢复 OTA。
+- 在线/离线判定使用服务端接收时间；设备时间戳只作为观测时间保留，目前没有时钟偏差策略。
 - 尚未实现 AI 诊断服务。未来的 AI 能力必须从只读模式开始，并引用遥测、日志和文档证据。
 - 在没有实际测量数据前，不应宣称项目具备特定规模、可用性、硬件可靠性或 OTA 可靠性。
 

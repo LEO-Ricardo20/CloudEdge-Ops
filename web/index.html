@@ -34,6 +34,44 @@
     <div id="page-error" class="notice error" role="alert" hidden></div>
     <div id="page-status" class="notice" role="status" aria-live="polite">正在加载运行数据...</div>
 
+    <section id="access-panel" class="panel access-panel" aria-labelledby="access-heading" hidden>
+      <div class="panel-heading compact">
+        <div>
+          <p class="eyebrow">Access</p>
+          <h2 id="access-heading">连接与访问设置</h2>
+        </div>
+        <span id="auth-mode" class="status compact unknown">演示模式</span>
+      </div>
+      <p class="access-help">受保护模式下，凭据只保存在当前页面内存，不会写入 URL 或浏览器存储。</p>
+      <div class="access-grid">
+        <div>
+          <label for="operator-token">操作员 Token</label>
+          <input id="operator-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token">
+        </div>
+        <div>
+          <label for="device-token">设备 Token（可选）</label>
+          <input id="device-token" type="password" autocomplete="off" spellcheck="false" placeholder="用于设备命令查询">
+        </div>
+      </div>
+      <div class="access-actions">
+        <button id="apply-credentials" class="button" type="button">应用凭据并刷新</button>
+        <span id="credential-status" class="subtle" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section id="health-panel" class="panel health-panel" aria-labelledby="health-heading" aria-live="polite">
+      <div class="panel-heading compact">
+        <div>
+          <p class="eyebrow">Service health</p>
+          <h2 id="health-heading">服务状态</h2>
+        </div>
+        <span id="health-status" class="status compact unknown">检测中</span>
+      </div>
+      <div id="health-details" class="health-details">
+        <span>正在检测 API、持久化和数据版本...</span>
+      </div>
+    </section>
+
     <section id="summary" class="summary-grid" aria-label="平台摘要" aria-busy="true"></section>
 
     <section class="workspace">
@@ -121,7 +159,22 @@
                 <p class="eyebrow">Alert center</p>
                 <h2 id="alerts-heading">告警与证据</h2>
               </div>
-              <span id="alert-count" class="badge">0</span>
+              <div class="panel-heading-actions">
+                <span id="alert-count" class="badge">0</span>
+                <label class="visually-hidden" for="alert-status-filter">告警状态筛选</label>
+                <select id="alert-status-filter" class="compact-select">
+                  <option value="all">全部状态</option>
+                  <option value="open">待处理</option>
+                  <option value="acknowledged">已确认</option>
+                  <option value="resolved">已解决</option>
+                </select>
+                <label class="visually-hidden" for="alert-severity-filter">告警级别筛选</label>
+                <select id="alert-severity-filter" class="compact-select">
+                  <option value="all">全部级别</option>
+                  <option value="critical">严重</option>
+                  <option value="warning">警告</option>
+                </select>
+              </div>
             </div>
             <div id="alerts" class="feed empty-state">暂无告警。</div>
           </article>

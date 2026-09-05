@@ -252,6 +252,95 @@ h2 {
   color: #ffc1bd;
 }
 
+.access-panel,
+.health-panel {
+  margin-bottom: 14px;
+}
+
+.access-help {
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.access-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.access-grid label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.access-grid input,
+.compact-select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.access-grid input {
+  width: 100%;
+  padding: 0 10px;
+}
+
+.access-grid input:focus,
+.compact-select:focus {
+  border-color: var(--accent);
+}
+
+.access-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.access-actions .button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.health-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 11px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.health-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.health-item strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.health-metrics {
+  flex-basis: 100%;
+  color: #7f8a87;
+  font-size: 10px;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -324,6 +413,20 @@ h2 {
   padding-bottom: 12px;
 }
 
+.panel-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.compact-select {
+  min-height: 27px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
 .badge,
 .status {
   display: inline-flex;
@@ -358,6 +461,12 @@ h2 {
   border-color: rgba(255, 113, 107, 0.48);
   background: rgba(255, 113, 107, 0.08);
   color: var(--critical);
+}
+
+.status.expired {
+  border-color: rgba(255, 113, 107, 0.48);
+  background: rgba(255, 113, 107, 0.08);
+  color: #ffaaa4;
 }
 
 .status.acknowledged,
@@ -1045,6 +1154,28 @@ progress::-moz-progress-bar {
   .shadow-grid,
   .metric-list {
     grid-template-columns: 1fr;
+  }
+
+  .access-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .access-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .access-actions .button {
+    width: 100%;
+  }
+
+  .panel-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .panel-heading-actions .compact-select {
+    flex: 1 1 120px;
   }
 
   .field-action {

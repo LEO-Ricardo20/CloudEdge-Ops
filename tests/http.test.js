@@ -30,6 +30,51 @@ async function jsonRequest(baseUrl, pathname, options = {}) {
   return { response, body };
 }
 
+test('HTTP reports persistence degradation and rejects malformed URL encoding', async (t) => {
+  const { platform, baseUrl } = await startApi(t);
+  platform.repository = { save: () => { throw new Error('disk full'); } };
+  const failed = await jsonRequest(baseUrl, '/api/ota-jobs', {
+    method: 'POST', body: JSON.stringify({ deviceId: 'robot-arm-01', targetVersion: '0.3.0' }),
+  });
+  assert.equal(failed.response.status, 500);
+  assert.equal(failed.body.error, 'Internal server error');
+  const health = await jsonRequest(baseUrl, '/api/health');
+  assert.equal(health.response.status, 503);
+  assert.equal(health.body.ok, false);
+  assert.equal(health.body.persistence, 'error');
+  assert.equal((await jsonRequest(baseUrl, '/api/devices/%FF')).response.status, 400);
+});
+
+test('SSE delivers committed telemetry and heartbeats and releases disconnected clients', async (t) => {
+  const { platform, baseUrl } = await startApi(t, { sseHeartbeatMs: 20 });
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(`${baseUrl}/api/events`, { signal: controller.signal });
+  assert.match(response.headers.get('content-type'), /text\/event-stream/);
+  const reader = response.body.getReader();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
+  try {
+    platform.ingestTelemetry({ deviceId: 'robot-arm-01', metrics: { temperatureC: 40 } });
+    let text = '';
+    while (!text.includes('event: telemetry.updated') || !text.includes(': heartbeat')) {
+      const result = await reader.read();
+      assert.equal(result.done, false);
+      text += new TextDecoder().decode(result.value);
+    }
+    assert.match(text, /event: connected/);
+    assert.match(text, /"temperatureC":40/);
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+  let count = 1;
+  for (let attempt = 0; attempt < 20 && count; attempt += 1) {
+    count = (await jsonRequest(baseUrl, '/api/metrics')).body.sseClients;
+    if (count) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(count, 0);
+});
+
 test('HTTP polling keeps OTA active through downloading and installing', async (t) => {
   const { baseUrl } = await startApi(t);
   const created = await jsonRequest(baseUrl, '/api/ota-jobs', {

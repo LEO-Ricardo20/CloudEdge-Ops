@@ -4,6 +4,11 @@ const state = {
   device: null,
   alerts: [],
   events: [],
+  health: null,
+  metrics: null,
+  credentials: { operatorToken: '', deviceToken: '' },
+  alertStatus: 'all',
+  alertSeverity: 'all',
   search: '',
   loading: true,
   detailLoading: false,
@@ -33,10 +38,11 @@ const statusLabels = {
   installing: '安装中',
   success: '成功',
   failed: '失败',
+  expired: '已过期',
   cancelled: '已取消',
 };
 
-const terminalCommandStatuses = new Set(['success', 'failed', 'cancelled']);
+const terminalCommandStatuses = new Set(['success', 'failed', 'expired', 'cancelled']);
 const eventTypes = [
   'telemetry.updated',
   'device.updated',
@@ -106,7 +112,7 @@ function statusClass(status) {
   const normalized = String(status || 'unknown').toLowerCase();
   const allowed = new Set([
     'online', 'offline', 'unknown', 'open', 'acknowledged', 'resolved',
-    'queued', 'downloading', 'installing', 'success', 'failed', 'cancelled',
+    'queued', 'downloading', 'installing', 'success', 'failed', 'expired', 'cancelled',
   ]);
   return allowed.has(normalized) ? normalized : 'unknown';
 }
@@ -198,8 +204,15 @@ function activeOtaCommand(device = currentDevice()) {
 
 async function api(path, options = {}) {
   const headers = { Accept: 'application/json', ...(options.headers || {}) };
+  const method = String(options.method || 'GET').toUpperCase();
+  const isTelemetry = path === '/api/telemetry';
+  const isDeviceCommand = /^\/api\/commands(?:\?|$)/.test(path) || /^\/api\/commands\/[^/]+\/(ack|progress)/.test(path);
+  const isOperatorWrite = method !== 'GET' && !isTelemetry && !isDeviceCommand;
+  const token = isOperatorWrite || path === '/api/auth/operator' ? state.credentials.operatorToken
+    : isDeviceCommand ? state.credentials.deviceToken : '';
+  if (token && !headers.Authorization) headers.Authorization = 'Bearer ' + token;
   if (options.body !== undefined && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(path, { signal: AbortSignal.timeout(10_000), ...options, headers });
   const text = await response.text();
   let body = {};
   if (text) {
@@ -210,11 +223,31 @@ async function api(path, options = {}) {
     }
   }
   if (!response.ok) {
-    const error = new Error(body.error || body.message || '请求失败（' + response.status + '）');
+    const retryAfter = response.headers.get('Retry-After') || '';
+    const error = new Error(apiErrorMessage(response.status, { ...body, retryAfter }));
     error.status = response.status;
+    error.body = body;
+    error.code = body.code || '';
+    error.requestId = body.requestId || response.headers.get('X-Request-Id') || '';
+    error.retryAfter = retryAfter;
     throw error;
   }
   return body;
+}
+
+function apiErrorMessage(status, body = {}) {
+  const code = body.code || '';
+  const messages = {
+    AUTH_REQUIRED: '需要提供访问凭据。请在“连接与访问设置”中填写 Token。',
+    FORBIDDEN: '当前凭据没有执行此操作的权限。',
+    RATE_LIMITED: '请求过于频繁，请稍后再试。',
+    COMMAND_EXPIRED: '该命令已经过期，无法继续执行。',
+    IDEMPOTENCY_KEY_REUSE: '请求编号已被其他内容使用，请重新提交。',
+    VALIDATION_ERROR: '请求参数无效。',
+    PERSISTENCE_UNAVAILABLE: '持久化暂时不可用，请检查服务状态。',
+  };
+  const base = messages[code] || body.error || body.message || ('请求失败（' + status + '）');
+  return status === 429 && body.retryAfter ? base + ' ' + body.retryAfter + ' 秒后重试。' : base;
 }
 
 function setPageError(message) {
@@ -237,6 +270,53 @@ function renderPageState() {
     status.hidden = true;
     status.textContent = '';
   }
+}
+
+function renderHealth() {
+  const panel = query('#health-panel');
+  const badge = query('#health-status');
+  const details = query('#health-details');
+  const health = state.health;
+  if (!health) {
+    badge.className = 'status compact unknown';
+    badge.textContent = state.loading ? '检测中' : '不可用';
+    details.replaceChildren(createElement('span', '', state.loading ? '正在检测 API、持久化和数据版本...' : '无法读取服务健康状态。'));
+    return;
+  }
+  const status = String(health.status || (health.ok ? 'ok' : 'unknown')).toLowerCase();
+  const healthy = status === 'ok' || status === 'healthy';
+  badge.className = 'status compact ' + (healthy ? 'online' : 'offline');
+  badge.textContent = healthy ? '服务正常' : '需要检查';
+  const items = [
+    ['API', healthy ? '可用' : '异常'],
+    ['持久化', health.persistence || '未知'],
+    ['数据版本', health.schemaVersion ?? '-'],
+  ];
+  if (health.recovery) items.push(['恢复来源', '备份 #' + (health.recovery.backupIndex || '?')]);
+  details.replaceChildren(...items.map(([label, value]) => {
+    const item = createElement('span', 'health-item');
+    item.append(createElement('strong', '', label), createElement('span', '', value));
+    return item;
+  }));
+  const authMode = query('#auth-mode');
+  const accessPanel = query('#access-panel');
+  if (authMode && accessPanel) {
+    const protectedMode = health.authMode === 'protected';
+    authMode.className = 'status compact ' + (protectedMode ? 'acknowledged' : 'online');
+    authMode.textContent = protectedMode ? '受保护模式' : '演示模式';
+    accessPanel.hidden = !protectedMode;
+  }
+}
+
+function renderMetrics() {
+  const metrics = state.metrics;
+  if (!metrics) return;
+  const detail = query('#health-details');
+  const existing = detail.querySelector('.health-metrics');
+  if (existing) existing.remove();
+  const item = createElement('span', 'health-metrics');
+  item.textContent = '请求 ' + (metrics.requests ?? '-') + ' · 错误 ' + (metrics.errors ?? '-') + ' · 限流 ' + (metrics.rateLimited ?? '-');
+  detail.append(item);
 }
 
 function renderSummary() {
@@ -464,7 +544,8 @@ function renderActiveCommand() {
     createElement('strong', '', '升级至 ' + commandTarget(command)),
     createElement('span', 'status compact ' + statusClass(command.status), statusLabel(command.status)),
   );
-  const meta = createElement('p', 'command-meta', command.id + ' · 创建于 ' + formatTime(command.createdAt));
+  const expiry = command.expiresAt ? ' · ' + (String(command.status).toLowerCase() === 'expired' ? '已于 ' : '过期于 ') + formatTime(command.expiresAt) : '';
+  const meta = createElement('p', 'command-meta', command.id + ' · 创建于 ' + formatTime(command.createdAt) + expiry);
   replaceChildren(container, [heading, renderProgress(command), meta]);
 }
 
@@ -537,7 +618,7 @@ function renderCommands() {
     const identity = createElement('span', 'command-identity');
     identity.append(
       createElement('strong', '', String(command.type || 'command').toUpperCase() + ' · ' + commandTarget(command)),
-      createElement('small', '', command.id + ' · ' + formatTime(command.createdAt)),
+      createElement('small', '', command.id + ' · ' + formatTime(command.createdAt) + (command.expiresAt ? ' · 过期 ' + formatTime(command.expiresAt) : '')),
     );
     summary.append(identity, createElement('span', 'status compact ' + statusClass(command.status), statusLabel(command.status)));
     const body = createElement('div', 'command-body');
@@ -634,7 +715,12 @@ function renderAlerts() {
   const container = query('#alerts');
   const selectedId = state.selectedDeviceId;
   const alerts = selectedId
-    ? state.alerts.filter((alert) => alert.deviceId === selectedId)
+    ? state.alerts.filter((alert) => {
+      if (alert.deviceId !== selectedId) return false;
+      if (state.alertStatus !== 'all' && alert.status !== state.alertStatus) return false;
+      if (state.alertSeverity !== 'all' && alert.severity !== state.alertSeverity) return false;
+      return true;
+    })
     : [];
   const unresolved = alerts.filter((alert) => alert.status !== 'resolved').length;
   query('#alert-count').textContent = String(unresolved);
@@ -645,7 +731,9 @@ function renderAlerts() {
   }
   if (!alerts.length) {
     container.className = 'feed empty-state';
-    container.textContent = '该设备暂无告警。';
+    container.textContent = state.alertStatus !== 'all' || state.alertSeverity !== 'all'
+      ? '没有符合筛选条件的告警。'
+      : '该设备暂无告警。';
     return;
   }
   container.className = 'feed';
@@ -753,6 +841,8 @@ function renderHeaderActions() {
 function renderAll() {
   const activeFocusKey = captureInteractionState();
   renderPageState();
+  renderHealth();
+  renderMetrics();
   renderSummary();
   renderDeviceList();
   renderDevice();
@@ -776,6 +866,14 @@ async function loadDashboard(initial = false) {
   if (initial) state.loading = true;
   renderAll();
   try {
+    const [healthResult, metricsResult] = await Promise.allSettled([
+      api('/api/health'),
+      api('/api/metrics'),
+    ]);
+    if (sequence !== state.loadSequence) return;
+    state.health = healthResult.status === 'fulfilled' ? healthResult.value
+      : healthResult.reason?.body?.status === 'degraded' ? healthResult.reason.body : null;
+    state.metrics = metricsResult.status === 'fulfilled' ? metricsResult.value : null;
     const [deviceResult, alertResult, eventResult] = await Promise.all([
       api('/api/devices'),
       api('/api/alerts'),
@@ -794,6 +892,7 @@ async function loadDashboard(initial = false) {
     state.detailLoading = false;
     setPageError('');
     renderAll();
+    renderMetrics();
   } catch (error) {
     if (sequence !== state.loadSequence) return;
     state.loading = false;
@@ -810,8 +909,9 @@ function addRealtimeEvent(event) {
 }
 
 function scheduleRefresh() {
-  window.clearTimeout(state.refreshTimer);
+  if (state.refreshTimer !== null) return;
   state.refreshTimer = window.setTimeout(() => {
+    state.refreshTimer = null;
     loadDashboard(false).catch(() => {});
   }, 220);
 }
@@ -825,6 +925,25 @@ function setConnection(connectionState) {
   };
   container.className = 'connection ' + connectionState;
   query('#connection-label').textContent = labels[connectionState] || labels.connecting;
+}
+
+async function applyCredentials() {
+  const operatorInput = query('#operator-token');
+  const deviceInput = query('#device-token');
+  state.credentials.operatorToken = operatorInput?.value.trim() || '';
+  state.credentials.deviceToken = deviceInput?.value.trim() || '';
+  const status = query('#credential-status');
+  if (status) status.textContent = '正在验证并刷新...';
+  try {
+    await api('/api/auth/operator');
+    if (state.credentials.deviceToken && state.selectedDeviceId) {
+      await api('/api/commands?deviceId=' + encodeURIComponent(state.selectedDeviceId));
+    }
+    await loadDashboard(false);
+    if (status) status.textContent = '凭据已应用（仅保存在当前页面）。';
+  } catch {
+    if (status) status.textContent = '凭据验证失败，请检查 Token 和服务状态。';
+  }
 }
 
 function connectEvents() {
@@ -854,6 +973,18 @@ query('#device-search').addEventListener('input', (event) => {
   state.search = event.target.value;
   renderDeviceList();
 });
+
+query('#alert-status-filter')?.addEventListener('change', (event) => {
+  state.alertStatus = event.target.value;
+  renderAlerts();
+});
+
+query('#alert-severity-filter')?.addEventListener('change', (event) => {
+  state.alertSeverity = event.target.value;
+  renderAlerts();
+});
+
+query('#apply-credentials')?.addEventListener('click', applyCredentials);
 
 query('#ota-form').addEventListener('submit', async (event) => {
   event.preventDefault();
