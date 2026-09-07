@@ -15,6 +15,8 @@ const state = {
   busy: new Set(),
   loadSequence: 0,
   refreshTimer: null,
+  eventSource: null,
+  authSequence: 0,
   commandDisclosure: new Map(),
   pendingOtaRequest: null,
 };
@@ -207,9 +209,7 @@ async function api(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   const isTelemetry = path === '/api/telemetry';
   const isDeviceCommand = /^\/api\/commands(?:\?|$)/.test(path) || /^\/api\/commands\/[^/]+\/(ack|progress)/.test(path);
-  const isOperatorWrite = method !== 'GET' && !isTelemetry && !isDeviceCommand;
-  const token = isOperatorWrite || path === '/api/auth/operator' ? state.credentials.operatorToken
-    : isDeviceCommand ? state.credentials.deviceToken : '';
+  const token = isDeviceCommand || isTelemetry ? state.credentials.deviceToken : state.credentials.operatorToken;
   if (token && !headers.Authorization) headers.Authorization = 'Bearer ' + token;
   if (options.body !== undefined && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   const response = await fetch(path, { signal: AbortSignal.timeout(10_000), ...options, headers });
@@ -895,6 +895,7 @@ async function loadDashboard(initial = false) {
     renderMetrics();
   } catch (error) {
     if (sequence !== state.loadSequence) return;
+    if (error.status === 401 || error.status === 403) clearPrivateState();
     state.loading = false;
     state.detailLoading = false;
     setPageError('无法加载控制台：' + error.message);
@@ -919,6 +920,7 @@ function scheduleRefresh() {
 function setConnection(connectionState) {
   const container = query('#connection');
   const labels = {
+    locked: '等待认证',
     connecting: '实时连接中',
     connected: '实时已连接',
     reconnecting: '实时重连中',
@@ -928,6 +930,10 @@ function setConnection(connectionState) {
 }
 
 async function applyCredentials() {
+  const authSequence = ++state.authSequence;
+  state.eventSource?.close();
+  state.eventSource = null;
+  query('#apply-credentials').disabled = true;
   const operatorInput = query('#operator-token');
   const deviceInput = query('#device-token');
   state.credentials.operatorToken = operatorInput?.value.trim() || '';
@@ -936,19 +942,73 @@ async function applyCredentials() {
   if (status) status.textContent = '正在验证并刷新...';
   try {
     await api('/api/auth/operator');
+    if (authSequence !== state.authSequence) return;
     if (state.credentials.deviceToken && state.selectedDeviceId) {
       await api('/api/commands?deviceId=' + encodeURIComponent(state.selectedDeviceId));
     }
+    await api('/api/auth/session', { method: 'POST' });
+    if (authSequence !== state.authSequence) return;
+    connectEvents();
     await loadDashboard(false);
+    operatorInput.value = '';
+    deviceInput.value = '';
     if (status) status.textContent = '凭据已应用（仅保存在当前页面）。';
   } catch {
+    if (authSequence !== state.authSequence) return;
+    clearPrivateState();
+    renderAll();
     if (status) status.textContent = '凭据验证失败，请检查 Token 和服务状态。';
+  } finally {
+    query('#apply-credentials').disabled = false;
+  }
+}
+
+function clearPrivateState() {
+  state.authSequence += 1;
+  state.eventSource?.close();
+  state.eventSource = null;
+  window.clearTimeout(state.refreshTimer);
+  state.refreshTimer = null;
+  state.loadSequence += 1;
+  state.credentials = { operatorToken: '', deviceToken: '' };
+  state.devices = [];
+  state.device = null;
+  state.selectedDeviceId = null;
+  state.alerts = [];
+  state.events = [];
+  state.metrics = null;
+  if (state.health) state.health = { ok: state.health.ok, status: state.health.status, authMode: state.health.authMode };
+  state.commandDisclosure.clear();
+  state.pendingOtaRequest = null;
+  state.loading = false;
+  state.detailLoading = false;
+  query('#operator-token').value = '';
+  query('#device-token').value = '';
+  setConnection('locked');
+}
+
+async function logout() {
+  clearPrivateState();
+  renderAll();
+  query('#credential-status').textContent = '已退出';
+  try {
+    await api('/api/auth/session', { method: 'DELETE' });
+  } catch {
+    query('#credential-status').textContent = '本页已退出，服务端会话注销失败，请重试退出。';
   }
 }
 
 function connectEvents() {
+  state.eventSource?.close();
   setConnection('connecting');
   const source = new EventSource('/api/events');
+  state.eventSource = source;
+  source.addEventListener('auth.expired', () => {
+    if (state.eventSource !== source) return;
+    clearPrivateState();
+    renderAll();
+    query('#credential-status').textContent = '会话已过期，请重新认证。';
+  });
   source.onopen = () => setConnection('connected');
   source.addEventListener('connected', () => {
     setConnection('connected');
@@ -956,6 +1016,7 @@ function connectEvents() {
   });
   eventTypes.forEach((type) => {
     source.addEventListener(type, (message) => {
+      if (state.eventSource !== source) return;
       try {
         const event = JSON.parse(message.data);
         addRealtimeEvent(event);
@@ -965,7 +1026,20 @@ function connectEvents() {
       }
     });
   });
-  source.onerror = () => setConnection('reconnecting');
+  source.onerror = () => {
+    if (state.eventSource !== source) return;
+    setConnection('reconnecting');
+    api('/api/auth/operator').then(() => {
+      if (state.eventSource === source && state.health?.authMode === 'protected') {
+        return api('/api/auth/session', { method: 'POST' });
+      }
+    }).catch((error) => {
+      if (state.eventSource === source && [401, 403].includes(error.status)) {
+        clearPrivateState();
+        renderAll();
+      }
+    });
+  };
   window.addEventListener('beforeunload', () => source.close(), { once: true });
 }
 
@@ -985,6 +1059,7 @@ query('#alert-severity-filter')?.addEventListener('change', (event) => {
 });
 
 query('#apply-credentials')?.addEventListener('click', applyCredentials);
+query('#logout')?.addEventListener('click', logout);
 
 query('#ota-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -1049,5 +1124,4 @@ query('#inject-alert').addEventListener('click', async () => {
   }
 });
 
-connectEvents();
-loadDashboard(true).catch(() => {});
+loadDashboard(true).then(connectEvents).catch(() => {});

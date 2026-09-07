@@ -9,6 +9,8 @@ test('configuration defaults to local demo and validates protected credentials',
   assert.equal(config.deviceTokens['device-1'], 'device-test');
   for (const env of [
     { AUTH_MODE: 'protectd' },
+    { DEVICE_TOKENS: '{"device-1":"same","device-2":"same"}' },
+    { OPERATOR_TOKEN: 'same', DEVICE_TOKENS: '{"device-1":"same"}' },
     { AUTH_MODE: 'protected' },
     { DEVICE_TOKENS: '{broken' },
     { DEVICE_TOKENS: '[]' },

@@ -25,6 +25,10 @@ function readConfig(env = process.env) {
     }
   }
   const operatorToken = env.OPERATOR_TOKEN || '';
+  const tokens = Object.values(deviceTokens);
+  if (new Set(tokens).size !== tokens.length || (operatorToken && tokens.includes(operatorToken))) {
+    throw new Error('Operator and device tokens must be unique across identities');
+  }
   if (authMode === 'protected' && (!operatorToken.trim() || operatorToken !== operatorToken.trim() || !Object.keys(deviceTokens).length)) {
     throw new Error('Protected mode requires OPERATOR_TOKEN and at least one DEVICE_TOKENS entry');
   }

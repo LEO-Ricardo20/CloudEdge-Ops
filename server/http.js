@@ -71,6 +71,7 @@ function bearerToken(request) {
 
 function createLimiter(config = {}) {
   const buckets = new Map();
+  let nextCleanup = 0;
   const defaults = { limit: 1000, windowMs: 60_000 };
   return (name, key) => {
     const input = config[name] || config.default || defaults;
@@ -78,6 +79,10 @@ function createLimiter(config = {}) {
     const windowMs = Number(input?.windowMs || 60_000);
     if (!Number.isFinite(limit) || limit <= 0) return null;
     const now = Date.now(); const bucketKey = `${name}:${key}`;
+    if (now >= nextCleanup) {
+      for (const [key, bucket] of buckets) if (now >= bucket.resetAt) buckets.delete(key);
+      nextCleanup = now + 60_000;
+    }
     let bucket = buckets.get(bucketKey);
     if (!bucket || now >= bucket.resetAt) { bucket = { count: 0, resetAt: now + windowMs }; buckets.set(bucketKey, bucket); }
     bucket.count += 1;
@@ -87,6 +92,9 @@ function createLimiter(config = {}) {
 
 function createHttpHandler(platform, webRoot, options = {}) {
   const clients = new Set();
+  const sessions = new Map();
+  const sessionTtlMs = options.sessionTtlMs || 30 * 60_000;
+  const sessionCookie = 'cloudedge_events';
   const counters = { requests: 0, errors: 0, rateLimited: 0 };
   const maxJsonBodyBytes = options.maxJsonBodyBytes || DEFAULT_MAX_JSON_BODY_BYTES;
   const sseHeartbeatMs = options.sseHeartbeatMs || 15_000;
@@ -96,12 +104,34 @@ function createHttpHandler(platform, webRoot, options = {}) {
   const configuredDeviceTokens = options.deviceTokens || {};
   const deviceTokens = configuredDeviceTokens instanceof Map ? configuredDeviceTokens : new Map(Object.entries(configuredDeviceTokens));
   const limit = createLimiter(options.rateLimits || {});
+  function closeClient(client) {
+    clients.delete(client);
+    client.end();
+  }
+  function activeClient(client) {
+    if (!client.sessionId) return true;
+    const expiresAt = sessions.get(client.sessionId);
+    if (expiresAt && expiresAt > Date.now()) return true;
+    client.write('event: auth.expired\ndata: {}\n\n');
+    closeClient(client);
+    return false;
+  }
+  function sessionId(request) {
+    return (request.headers.cookie || '').split(';').map((part) => part.trim())
+      .find((part) => part.startsWith(`${sessionCookie}=`))?.slice(sessionCookie.length + 1);
+  }
+  function revokeSession(id) {
+    if (!id) return;
+    sessions.delete(id);
+    for (const client of clients) if (client.sessionId === id) activeClient(client);
+  }
   const unsubscribe = platform.subscribe((event) => {
     const payload = `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
-    for (const client of clients) { try { client.write(payload); } catch { clients.delete(client); } }
+    for (const client of clients) { try { if (activeClient(client) && !client.write(payload)) closeClient(client); } catch { closeClient(client); } }
   });
   const heartbeatTimer = setInterval(() => {
-    for (const client of clients) { try { client.write(': heartbeat\n\n'); } catch { clients.delete(client); } }
+    for (const [id, expiresAt] of sessions) if (expiresAt <= Date.now()) revokeSession(id);
+    for (const client of clients) { try { if (activeClient(client) && !client.write(': heartbeat\n\n')) closeClient(client); } catch { closeClient(client); } }
   }, sseHeartbeatMs);
   heartbeatTimer.unref();
 
@@ -134,11 +164,34 @@ function createHttpHandler(platform, webRoot, options = {}) {
     response.setHeader('X-Request-Id', requestId); counters.requests += 1;
     try {
       const requestUrl = new URL(request.url, 'http://localhost'); const { pathname, searchParams } = requestUrl; const method = request.method || 'GET'; const ip = requestIp(request);
+      if (pathname.startsWith('/api/')) enforceLimit('api', ip, response);
+      if (pathname === '/api/auth/session' && ['POST', 'DELETE'].includes(method)) {
+        const origin = request.headers.origin;
+        if (origin && origin !== `http://${request.headers.host}`) {
+          throw new DomainError('cross-origin session requests are forbidden', { statusCode: 403, code: 'FORBIDDEN' });
+        }
+        if (method === 'DELETE') {
+          revokeSession(sessionId(request));
+          response.setHeader('Set-Cookie', `${sessionCookie}=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0`);
+          return sendJson(response, 200, { ok: true }, requestId);
+        }
+        requireOperator(request);
+        for (const [id, expiresAt] of sessions) if (expiresAt <= Date.now()) revokeSession(id);
+        revokeSession(sessionId(request));
+        if (sessions.size >= 100) throw new DomainError('Too many event sessions', { statusCode: 429, code: 'RATE_LIMITED' });
+        const id = crypto.randomBytes(32).toString('hex');
+        const expiresAt = Date.now() + sessionTtlMs;
+        sessions.set(id, expiresAt);
+        response.setHeader('Set-Cookie', `${sessionCookie}=${id}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=${Math.ceil(sessionTtlMs / 1000)}`);
+        return sendJson(response, 201, { expiresAt: new Date(expiresAt).toISOString() }, requestId);
+      }
       if (method === 'GET' && pathname === '/api/health') {
         const health = typeof platform.getHealth === 'function' ? platform.getHealth() : { status: 'ok', persistence: 'unknown', recovery: null, schemaVersion: 1 };
         const ok = health.status === 'ok';
-        return sendJson(response, ok ? 200 : 503, { ok, service: 'cloudedge-ops', authMode, now: new Date().toISOString(), ...health }, requestId);
+        const details = authMode !== 'protected' || safeEqual(bearerToken(request), operatorToken) ? health : { status: health.status };
+        return sendJson(response, ok ? 200 : 503, { ok, service: 'cloudedge-ops', authMode, now: new Date().toISOString(), ...details }, requestId);
       }
+      if (method === 'GET' && ['/api/devices', '/api/alerts', '/api/events/history', '/api/metrics'].includes(pathname)) requireOperator(request);
       if (method === 'GET' && pathname === '/api/metrics') {
         const metrics = typeof platform.getMetrics === 'function' ? platform.getMetrics() : {};
         return sendJson(response, 200, { ...metrics, sseClients: clients.size, requests: counters.requests, errors: counters.errors, rateLimited: counters.rateLimited }, requestId);
@@ -149,7 +202,9 @@ function createHttpHandler(platform, webRoot, options = {}) {
       }
       if (method === 'GET' && pathname === '/api/devices') return sendJson(response, 200, { devices: platform.listDevices() }, requestId);
       if (method === 'GET' && /^\/api\/devices\/[^/]+$/.test(pathname)) {
-        const deviceId = decodeURIComponent(pathname.split('/').pop()); const device = platform.getDevice(deviceId);
+        const deviceId = decodeURIComponent(pathname.split('/').pop());
+        if (authMode === 'protected' && !safeEqual(bearerToken(request), operatorToken)) requireDevice(request, deviceId);
+        const device = platform.getDevice(deviceId);
         return device ? sendJson(response, 200, { device }, requestId) : sendJson(response, 404, { error: 'device not found', code: 'DEVICE_NOT_FOUND' }, requestId);
       }
       if (method === 'POST' && pathname === '/api/telemetry') {
@@ -187,6 +242,17 @@ function createHttpHandler(platform, webRoot, options = {}) {
         return sendJson(response, 202, platform.ingestTelemetry({ deviceId, metrics: { ...previous, temperatureC: 73.8 }, reportedState: device.shadow.reported }), requestId);
       }
       if (method === 'GET' && pathname === '/api/events') {
+        let eventSessionId;
+        if (authMode === 'protected') {
+          if (bearerToken(request)) requireOperator(request);
+          else {
+            eventSessionId = sessionId(request);
+            if (!eventSessionId || !(sessions.get(eventSessionId) > Date.now())) {
+              throw new DomainError('event session required', { statusCode: 401, code: 'AUTH_REQUIRED' });
+            }
+          }
+        }
+        response.sessionId = eventSessionId;
         response.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Request-Id': requestId });
         response.write(`event: connected\ndata: ${JSON.stringify({ occurredAt: new Date().toISOString(), requestId })}\n\n`); clients.add(response); request.on('close', () => clients.delete(response)); return;
       }
@@ -203,7 +269,7 @@ function createHttpHandler(platform, webRoot, options = {}) {
       return sendJson(response, statusCode, errorBody(error, statusCode, requestId), requestId);
     }
   };
-  handler.close = () => { clearInterval(heartbeatTimer); unsubscribe(); for (const client of clients) client.end(); clients.clear(); };
+  handler.close = () => { clearInterval(heartbeatTimer); unsubscribe(); for (const client of clients) client.end(); clients.clear(); sessions.clear(); };
   handler.metrics = counters;
   return handler;
 }

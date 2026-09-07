@@ -1,5 +1,20 @@
 # v0.3 Verification
 
+## v0.4 verification - 2026-09-07
+
+Local environment: Windows, Node.js v24.11.1, installed Chrome through Playwright Core.
+
+- `npm test`: 38 passed, 0 failed.
+- `npm run test:integration`: 27 passed, 0 failed.
+- `npm run test:browser`: demo and protected workflows passed. Both modes tested at 1440x1000, 390x844 and 320x740 without horizontal overflow or page errors.
+- Protected browser checks: anonymous empty state, wrong-token rejection, successful authentication, alert lifecycle, OTA, device navigation, logout data clearing and locked reload.
+- API checks: private read isolation, redacted health, SSE cookie privileges, expiry, replacement-session revocation, logout and rate limits.
+- Screenshots: `docs/screenshots/demo-desktop.png`, `demo-mobile.png`, `protected-desktop.png`, `protected-mobile.png`.
+- Browser checks require an existing Playwright/Playwright Core installation (`PLAYWRIGHT_MODULE` can point to it) and Chrome (`BROWSER_CHANNEL` defaults to `chrome`). Run `npm run test:browser`; it starts and cleans up temporary services itself.
+- GitHub CI is configured for Windows/Linux with Node 22/24. A configured workflow is not proof of a successful remote run; consult Actions for the pushed commit.
+
+The following v0.3 record is historical. In v0.4 protected read routes and SSE require authentication. Hardware OTA, TLS, live credential rotation, pagination and multi-user accounts remain unimplemented.
+
 Date: 2026-09-05 (Asia/Shanghai)
 
 ## Automated checks

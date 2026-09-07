@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 - 2026-09-07
+
+- Require operator authentication for fleet, alerts, metrics and event history in protected mode; scope device detail reads to the operator or that device.
+- Authenticate SSE through operator bearer headers or opaque 30-minute HttpOnly/SameSite event cookies. Revoke streams on logout, replacement login and expiry; cookies cannot authorize REST writes or reads.
+- Clear browser credentials and private data on logout/authentication failure; require authentication again after reload.
+- Redact anonymous health responses, reject shared identity tokens, limit API authentication attempts, reclaim expired limiter buckets and disconnect slow SSE clients.
+- Verify anonymous/device denial, cookie privilege boundaries, expiration/revocation, and browser login/OTA/logout across desktop and mobile widths.
+- Clarify evidence: CI configuration alone is not a successful remote CI run. Real hardware, live credential rotation, pagination and multi-user accounts remain future work.
+
 ## 0.3.0 - 2026-09-05
 
 - Retain and finish the local v0.3 work: snapshot migration, three backup generations, operator/device credentials, rate limiting, request IDs, command expiry, health metrics and dashboard filters.

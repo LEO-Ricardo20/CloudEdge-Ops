@@ -19,7 +19,7 @@ Read completely before editing:
 
 Current implemented baseline:
 - v0.3: validated backup recovery, schema v2 migration, optional write/poll credentials, rate limits, server-owned expiry and health metrics.
-- Protected mode leaves reads and SSE public on loopback; it is not private access control.
+- v0.4 protects fleet reads and SSE; device detail is scoped by device identity. Public health is redacted. Browser sessions authorize SSE only, expire and can be revoked.
 - Node.js 18+ with no third-party runtime dependencies.
 - Multi-device telemetry and reported/desired device shadows.
 - Temperature, vibration, and offline alerts.
@@ -48,7 +48,7 @@ Engineering requirements:
 
 Recommended next milestone:
 1. Read docs/IMPROVEMENT_PLAN.md and docs/VERIFICATION.md for current acceptance evidence.
-2. Add private read authorization, token rotation and pagination before external deployment.
+2. Add live token rotation, multi-user accounts and pagination before external deployment.
 3. Retain contract tests during any protocol or storage migration.
 4. Integrate one ESP32 device before starting STM32/FreeRTOS work.
 

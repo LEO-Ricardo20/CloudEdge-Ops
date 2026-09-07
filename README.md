@@ -10,7 +10,7 @@ CloudEdge Ops is a portfolio project for connected industrial and robot devices.
 
 This repository implements the local Node.js MVP. It does not claim real hardware, MQTT, Go services, production scale, or AI diagnosis. Those remain explicit future milestones.
 
-Current release: **v0.3.0**. Formerly named CloudEdge AI. See the [improvement plan](docs/IMPROVEMENT_PLAN.md) and [release notes](CHANGELOG.md).
+Current release: **v0.4.0**. Formerly named CloudEdge AI. See the [improvement plan](docs/IMPROVEMENT_PLAN.md), [verification evidence](docs/VERIFICATION.md) and [release notes](CHANGELOG.md).
 
 ## Demonstrated operational loop
 
@@ -39,7 +39,7 @@ Device telemetry -> reported shadow -> alert evidence -> operator acknowledgemen
 
 ## Run locally
 
-Requirements: Node.js 18 or newer; Node.js 22 or 24 LTS is recommended and covered by CI on Linux and Windows. There are no third-party runtime dependencies.
+Requirements: Node.js 18 or newer; Node.js 22 or 24 LTS is recommended. CI is configured for Linux and Windows; actual run results are available in GitHub Actions. There are no third-party runtime dependencies.
 
 Open two PowerShell terminals in this directory.
 
@@ -87,7 +87,9 @@ $env:DEVICE_TOKEN = "local-device-example"
 npm run simulate
 ```
 
-Enter the operator token in the dashboard's access settings. Tokens stay in page memory. **Protected mode authenticates mutations and device command polling; dashboard reads, metrics and SSE remain public on the loopback service.** It is not a private or multi-tenant deployment. Invalid authentication configuration stops startup. Defaults allow 1,000 requests per minute per write category and identity/IP, returning `429` and `Retry-After` when exceeded.
+Enter the operator token in the dashboard's access settings. **Protected mode requires operator credentials for fleet reads, alerts, metrics and audit history. Devices can read only their own details and poll/update their own commands.** Tokens stay in page memory; SSE uses a separate 30-minute HttpOnly, SameSite=Strict cookie. This cookie authorizes only the realtime stream, not REST reads or writes. Logout revokes the stream and clears displayed private data. Reload requires entering the operator token again. Public health exposes only a minimal status; authenticated operators see persistence/recovery details.
+
+Invalid authentication configuration and tokens reused across identities stop startup. All API traffic, including failed authentication, has a default 1,000 requests/minute limit per IP, with additional write-category limits. Rate limiting returns `429` and `Retry-After`. The service still binds only to loopback and has no TLS or multi-user account management.
 
 ## Demo flow
 
@@ -146,7 +148,7 @@ Important endpoints include:
 ## Current boundaries
 
 - JSON persistence is synchronous and intended for a single local process.
-- Device bearer tokens are optional; tenant isolation, private read access, TLS, firmware signing, real artifact transfer, rollback, and resumable OTA are not implemented.
+- Protected-mode bearer authentication and private reads are implemented; tenant isolation, live credential rotation, TLS, firmware signing, real artifact transfer, rollback, and resumable OTA are not implemented.
 - Online/offline liveness uses server receive time; device timestamps are retained as observation time without a clock-skew policy.
 - There is no implemented AI diagnostic service. Future AI work must begin read-only and cite telemetry, logs, and documents.
 - No scale, uptime, hardware, or OTA reliability claims should be made without measured evidence.

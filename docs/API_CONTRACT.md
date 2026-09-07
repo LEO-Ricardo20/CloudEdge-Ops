@@ -27,13 +27,18 @@ The server binds to `127.0.0.1`. `AUTH_MODE=demo` is the default. `AUTH_MODE=pro
 | Telemetry, device command polling, command ack/progress | `Authorization: Bearer <token>` for the specific device |
 | OTA creation, alert acknowledge/resolve, demo injection | Operator bearer token |
 | `GET /api/auth/operator` | Operator bearer token; returns `{ actor, authMode }` for credential verification |
-| Health, metrics, device reads, alert reads, event history, SSE | Public local reads |
+| Fleet list, alerts, event history, metrics | Operator bearer token |
+| Device detail | Operator token or the specific device token |
+| SSE | Operator bearer token or event-session cookie |
+| Health and static dashboard files | Public; health details require operator token |
 
-Protected mode is write protection, not private data access. Do not expose the local service as a private deployment. Device tokens are never returned by an endpoint. In protected mode the alert actor is the authenticated operator, not the request body's actor.
+Protected mode protects reads and writes. Device tokens are never returned by an endpoint. In protected mode the alert actor is the authenticated operator, not the request body's actor. Anonymous health exposes `ok`, `service`, `authMode`, `now`, `status` and request identity, without filesystem recovery paths or persistence details. The server remains loopback-only without TLS or multi-user accounts.
+
+`POST /api/auth/session` requires an operator bearer token and creates an opaque 30-minute event session (maximum 100 sessions per process). It returns `expiresAt` and an HttpOnly, SameSite=Strict cookie scoped to `/api`. The cookie authorizes only `GET /api/events`; it cannot authorize REST reads or mutations. `DELETE /api/auth/session` revokes that cookie's session, closes its streams and clears the cookie. Replacement login revokes the old cookie. Session mutations reject foreign Origin headers. Query-string tokens are never accepted. Sessions are memory-only and disappear on server restart. Expiry is checked before event delivery and on heartbeat; expired streams receive `auth.expired` then close. Slow clients are disconnected when stream backpressure is detected and must reconnect to refresh state.
 
 `GET /api/health` returns `ok`, `status`, `persistence`, `schemaVersion`, `recovery`, and `authMode`. Failed persistence changes status to `degraded` and HTTP 503; successful persistence restores status to `ok`. Backup recovery includes source path and index. `GET /api/metrics` returns device/command/alert counts, SSE client count and HTTP request/error/rate-limit counters.
 
-Write limits default to 1,000 requests per 60 seconds per category (`telemetry` or `operatorWrite`) and identity/IP. Command polling and command progress are not currently rate-limited.
+All API requests have an additional default limit of 1,000 per 60 seconds per IP, including failed authentication, command polling and progress. Write limits also apply per category (`telemetry` or `operatorWrite`) and identity/IP. Expired limiter buckets are periodically removed.
 
 ## Device and telemetry
 

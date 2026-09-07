@@ -27,9 +27,9 @@ async function verify(authMode, browser) {
       windowsHide: true, stdio: 'ignore',
     });
     await page.goto(url);
-    await page.waitForFunction(() => document.querySelector('#connection-label').textContent.includes('已连接'));
-    await page.waitForFunction(() => document.querySelectorAll('.device-item').length === 2);
     if (authMode === 'protected') {
+      await page.locator('#access-panel').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('.device-item').count(), 0);
       await page.locator('#operator-token').fill('incorrect-token');
       await page.locator('#apply-credentials').click();
       await page.waitForFunction(() => document.querySelector('#credential-status').textContent.includes('失败'));
@@ -38,6 +38,8 @@ async function verify(authMode, browser) {
       await page.locator('#apply-credentials').click();
       await page.waitForFunction(() => document.querySelector('#credential-status').textContent.includes('已应用'));
     }
+    await page.waitForFunction(() => document.querySelector('#connection-label').textContent.includes('已连接'));
+    await page.waitForFunction(() => document.querySelectorAll('.device-item').length === 2);
     await page.locator('#inject-alert').click();
     await page.locator('[data-focus-key^="alert:acknowledge:"]').first().click();
     await page.locator('[data-focus-key^="alert:resolve:"]').first().click();
@@ -53,15 +55,26 @@ async function verify(authMode, browser) {
     await page.locator('#device-search').fill('');
     await page.locator('.device-item').filter({ hasText: 'Robot Arm' }).click();
     await page.waitForFunction(() => document.querySelector('#commands').textContent.includes('成功'));
-    if (authMode === 'demo') {
+    {
       const directory = path.resolve(__dirname, '..', 'docs/screenshots');
       fs.mkdirSync(directory, { recursive: true });
       for (const [name, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844], ['narrow', 320, 740]]) {
         await page.setViewportSize({ width, height });
         await page.evaluate(() => window.scrollTo(0, 0));
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${name} horizontal overflow`);
-        if (name !== 'narrow') await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true });
+        if (name !== 'narrow') await page.screenshot({ path: path.join(directory, `${authMode}-${name}.png`), fullPage: true });
       }
+    }
+    if (authMode === 'protected') {
+      await page.locator('#logout').click();
+      await page.waitForFunction(() => document.querySelector('#credential-status').textContent === '已退出');
+      assert.equal(await page.locator('.device-item').count(), 0);
+      assert.equal(await page.locator('.event-row').count(), 0);
+      assert.equal(await page.locator('.command-row').count(), 0);
+      assert.equal(await page.evaluate(() => document.cookie.includes('cloudedge_events')), false);
+      await page.reload();
+      await page.locator('#access-panel').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('.device-item').count(), 0);
     }
     assert.deepEqual(errors, []);
     console.log(`${authMode}: credentials, alert lifecycle, OTA, device navigation and layout passed`);

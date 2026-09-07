@@ -84,13 +84,15 @@ This diagram is a roadmap, not an implementation claim.
 
 ## Next milestones
 
-1. Add private read access, credential rotation, pagination and audit retention.
+1. Add live credential rotation, pagination, multi-user accounts and audit retention.
 2. Add Docker Compose with PostgreSQL and MQTT after measuring the local implementation.
 3. Integrate one ESP32 device with a verified firmware transport before STM32/FreeRTOS work.
 4. Add read-only, evidence-backed diagnosis after collecting real operational evidence.
 5. Consider a Go/React migration only when justified by measured requirements, preserving contract tests.
 
 The v0.3 release implements backup rotation, schema migration, optional write credentials, receive timestamps, rate limits, command expiry and health metrics. See [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) for acceptance gates.
+
+The v0.4 release adds private fleet reads, device-scoped detail reads and short-lived event sessions. The browser retains bearer credentials in memory and exchanges operator proof for an HttpOnly SSE-only cookie. Logout, expiry and replacement sessions terminate streams. Public health is redacted. Sessions do not survive process restart and are not a multi-user login service.
 
 ## Boundaries
 
