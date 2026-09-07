@@ -17,6 +17,33 @@
   --shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
 }
 
+dialog {
+  width: min(560px, calc(100% - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 24px;
+  background: var(--surface);
+  color: var(--ink);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.65); }
+dialog label { display: block; margin: 12px 0 6px; }
+dialog textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  font: inherit;
+  background: var(--canvas);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.panel-heading > div { min-width: 0; }
+.alert-heading { flex-wrap: wrap; }
+#temperature-value { white-space: normal; overflow-wrap: anywhere; font-size: 20px; }
+#device-status-filter { width: 100%; margin-bottom: 10px; }
+
 * {
   box-sizing: border-box;
 }

@@ -10,6 +10,9 @@ const state = {
   alertStatus: 'all',
   alertSeverity: 'all',
   search: '',
+  deviceStatus: 'all',
+  telemetryMetric: 'temperatureC',
+  resolvingAlertId: null,
   loading: true,
   detailLoading: false,
   busy: new Set(),
@@ -21,20 +24,15 @@ const state = {
   pendingOtaRequest: null,
 };
 
-const metricDefinitions = {
-  temperatureC: { label: '温度', unit: '°C', decimals: 1 },
-  vibrationMmS: { label: '振动', unit: 'mm/s', decimals: 1 },
-  batteryPct: { label: '电量', unit: '%', decimals: 0 },
-  motorRpm: { label: '电机转速', unit: 'RPM', decimals: 0 },
-};
+const metricDefinitions = CloudEdgeOperations.metrics;
 
 const statusLabels = {
   online: '在线',
-  offline: '离线',
-  unknown: '未知',
-  open: '待处理',
+  offline: '上报超时',
+  unknown: '尚未上报',
+  open: '待确认',
   acknowledged: '已确认',
-  resolved: '已解决',
+  resolved: '已关闭',
   queued: '排队中',
   downloading: '下载中',
   installing: '安装中',
@@ -333,7 +331,7 @@ function renderSummary() {
   ] : [
     ['注册设备', state.devices.length, state.devices.filter((device) => device.status === 'online').length + ' 台在线'],
     ['离线设备', offlineDevices, offlineDevices ? '需要检查连接' : unknownDevices ? unknownDevices + ' 台尚未上报' : '连接状态正常'],
-    ['待处理告警', unresolvedAlerts, unresolvedAlerts ? '包含待确认与已确认' : '没有未解决告警'],
+    ['未关闭告警', unresolvedAlerts, unresolvedAlerts ? '包含待确认与已确认' : '没有未关闭告警'],
     ['当前 OTA', activeCommand ? clampProgress(activeCommand.progress) + '%' : '无', activeCommand ? statusLabel(activeCommand.status) : selected ? '没有进行中任务' : '请选择设备'],
   ];
   const cards = items.map(([label, value, detail]) => {
@@ -375,10 +373,12 @@ function renderDeviceList() {
     return;
   }
   const search = state.search.trim().toLowerCase();
-  const devices = state.devices.filter((device) => !search || deviceSearchText(device).includes(search));
+  const devices = state.devices.filter((device) => (!search || deviceSearchText(device).includes(search))
+    && (state.deviceStatus === 'all' || device.status === state.deviceStatus));
+  query('#device-count').textContent = devices.length + ' / ' + state.devices.length;
   if (!devices.length) {
     container.className = 'device-list empty-state';
-    container.textContent = search ? '没有匹配的设备。' : '暂无设备。';
+    container.textContent = search || state.deviceStatus !== 'all' ? '没有匹配的设备。' : '暂无设备。';
     return;
   }
   container.className = 'device-list';
@@ -398,7 +398,7 @@ function renderDeviceList() {
     const footer = createElement('span', 'device-item-footer');
     footer.append(
       createElement('span', '', '固件 ' + reportedFirmware(device)),
-      createElement('span', unresolved ? 'has-alerts' : '', unresolved ? unresolved + ' 条告警' : '无未解决告警'),
+      createElement('span', unresolved ? 'has-alerts' : '', unresolved ? unresolved + ' 条告警' : '无未关闭告警'),
     );
     button.append(heading, identity, footer);
     button.addEventListener('click', () => selectDevice(device.id));
@@ -449,12 +449,15 @@ function renderDevice() {
   const lastSeen = query('#last-seen');
   lastSeen.textContent = device.lastSeenAt ? formatRelativeTime(device.lastSeenAt) : '从未上报';
   lastSeen.title = device.lastSeenAt ? formatTime(device.lastSeenAt) : '';
-  query('#device-mode').textContent = device.shadow?.reported?.mode || '-';
+  const mode = device.shadow?.reported?.mode;
+  query('#device-mode').textContent = ({ auto: '自动', manual: '手动' })[mode] || mode || '-';
+  query('#firmware-alignment').textContent = reportedFirmware(device) === desiredFirmware(device) ? '上报与期望一致' : '上报与期望不一致';
+  query('#observed-at').textContent = formatTime(device.latestTelemetry?.timestamp);
+  query('#observed-at').title = '设备上报 timestamp；未提供时使用服务端接收时间';
 }
 
 function temperatureSeries(device) {
-  if (!Array.isArray(device?.recentTelemetry)) return [];
-  return device.recentTelemetry.filter((item) => Number.isFinite(Number(item?.metrics?.temperatureC)));
+  return CloudEdgeOperations.series(device?.recentTelemetry, state.telemetryMetric);
 }
 
 function renderTelemetryChart(records) {
@@ -462,7 +465,7 @@ function renderTelemetryChart(records) {
   svg.replaceChildren();
   if (!records.length) {
     const message = createSvgElement('text', { x: 310, y: 92, class: 'chart-empty', 'text-anchor': 'middle' });
-    message.textContent = '暂无温度遥测';
+    message.textContent = '暂无有效采样';
     svg.append(message);
     return;
   }
@@ -470,19 +473,22 @@ function renderTelemetryChart(records) {
   const height = 180;
   const paddingX = 30;
   const paddingY = 22;
-  const values = records.map((item) => Number(item.metrics.temperatureC));
-  const min = Math.floor(Math.min(...values, 35) / 5) * 5;
-  const max = Math.ceil(Math.max(...values, 70) / 5) * 5;
+  const values = records.map((item) => item.metrics[state.telemetryMetric]);
+  const margin = Math.max((Math.max(...values) - Math.min(...values)) * 0.1, 1);
+  const min = Math.min(...values) - margin;
+  const max = Math.max(...values) + margin;
   const spread = Math.max(1, max - min);
+  const times = records.map((item) => Date.parse(item.receivedAt || item.timestamp));
+  const timeSpan = Math.max(1, times.at(-1) - times[0]);
   const points = records.map((item, index) => ({
-    x: paddingX + (index / Math.max(1, records.length - 1)) * (width - paddingX * 2),
-    y: height - paddingY - ((Number(item.metrics.temperatureC) - min) / spread) * (height - paddingY * 2),
+    x: paddingX + ((times[index] - times[0]) / timeSpan) * (width - paddingX * 2),
+    y: height - paddingY - ((item.metrics[state.telemetryMetric] - min) / spread) * (height - paddingY * 2),
   }));
   [0, 0.5, 1].forEach((ratio) => {
     const y = paddingY + ratio * (height - paddingY * 2);
     svg.append(createSvgElement('line', { class: 'chart-grid', x1: paddingX, y1: y, x2: width - paddingX, y2: y }));
     const label = createSvgElement('text', { class: 'chart-label', x: 0, y: y + 4 });
-    label.textContent = String(Math.round(max - ratio * spread));
+    label.textContent = (max - ratio * spread).toFixed(state.telemetryMetric === 'vibrationMmS' ? 1 : 0);
     svg.append(label);
   });
   const line = points.map((point, index) => (index ? 'L ' : 'M ') + point.x.toFixed(1) + ' ' + point.y.toFixed(1)).join(' ');
@@ -498,8 +504,14 @@ function renderTelemetryChart(records) {
 function renderTelemetry() {
   const device = currentDevice();
   const latest = device?.latestTelemetry?.metrics || {};
-  query('#temperature-value').textContent = formatMetric('temperatureC', latest.temperatureC);
-  renderTelemetryChart(temperatureSeries(device).slice(-48));
+  const metric = state.telemetryMetric;
+  query('#temperature-value').textContent = formatMetric(metric, latest[metric]);
+  query('#telemetry-heading').textContent = metricDefinitions[metric].label + '趋势';
+  query('#telemetry-chart').setAttribute('aria-label', metricDefinitions[metric].label + '趋势，按服务端接收时间');
+  const records = temperatureSeries(device).slice(-48);
+  renderTelemetryChart(records);
+  query('#telemetry-window').textContent = records.length
+    ? '接收时间 ' + formatTime(records[0].receivedAt || records[0].timestamp) + ' 至 ' + formatTime(records.at(-1).receivedAt || records.at(-1).timestamp) + ' · ' + records.length + ' 个采样点' + (device.status !== 'online' ? ' · 历史数据' : '') : '暂无采样';
   const metrics = Object.entries(metricDefinitions).map(([metric, definition]) => {
     const item = createElement('div', 'metric-item');
     item.append(
@@ -642,12 +654,7 @@ function alertMetricLabel(metric) {
 }
 
 function formatDuration(value) {
-  const milliseconds = Number(value);
-  if (!Number.isFinite(milliseconds)) return String(value ?? '-');
-  const minutes = Math.round(milliseconds / 60000);
-  if (minutes < 60) return minutes + ' 分钟';
-  const hours = Math.round(minutes / 60);
-  return hours + ' 小时';
+  return CloudEdgeOperations.duration(Number(value));
 }
 
 function describeEvidence(alert) {
@@ -663,7 +670,7 @@ function describeEvidence(alert) {
     if (duration !== undefined && duration !== 'offline') parts.push('离线 ' + formatDuration(duration));
     const threshold = evidence.thresholdMs ?? (evidence.thresholdUnit === 'ms' ? evidence.threshold : undefined);
     if (threshold !== undefined) parts.push('阈值 ' + formatDuration(threshold));
-    if (evidence.lastSeenAt) parts.push('最后在线 ' + formatTime(evidence.lastSeenAt));
+    if (evidence.lastSeenAt) parts.push('最近接收 ' + formatTime(evidence.lastSeenAt));
   } else {
     parts.push(alertMetricLabel(metric) + (evidence.value !== undefined ? ' ' + String(evidence.value) : ''));
     if (evidence.threshold !== undefined) parts.push('阈值 ' + String(evidence.threshold));
@@ -692,21 +699,46 @@ async function acknowledgeAlert(alertId) {
   }
 }
 
-async function resolveAlert(alertId) {
+function resolveAlert(alertId) {
+  const alert = state.alerts.find((item) => item.id === alertId);
+  if (!alert) return;
+  state.resolvingAlertId = alertId;
+  query('#resolve-context').textContent = CloudEdgeOperations.alarmTitle(alert) + ' · ' + CloudEdgeOperations.condition(alert, currentDevice()).label + ' · ' + describeEvidence(alert);
+  query('#resolution-note').value = '';
+  query('#resolve-error').hidden = true;
+  query('#resolve-dialog').showModal();
+  query('#resolution-note').focus();
+}
+
+async function submitResolution(event) {
+  event.preventDefault();
+  const alertId = state.resolvingAlertId;
+  const reason = query('#resolution-note').value.trim();
+  if (!alertId || !reason) {
+    query('#resolve-error').hidden = false;
+    query('#resolve-error').textContent = '请填写有效的处置记录。';
+    return;
+  }
   const key = 'resolve:' + alertId;
+  if (state.busy.has(key)) return;
   state.busy.add(key);
+  query('#resolve-submit').disabled = true;
   setPageError('');
   renderAlerts();
   try {
     await api('/api/alerts/' + encodeURIComponent(alertId) + '/resolve', {
       method: 'POST',
-      body: JSON.stringify({ actor: 'dashboard-operator' }),
+      body: JSON.stringify({ actor: 'dashboard-operator', reason }),
     });
+    query('#resolve-dialog').close();
+    state.resolvingAlertId = null;
     await loadDashboard(false);
   } catch (error) {
-    setPageError('解决告警失败：' + error.message);
+    query('#resolve-error').hidden = false;
+    query('#resolve-error').textContent = '关闭告警失败：' + error.message;
   } finally {
     state.busy.delete(key);
+    query('#resolve-submit').disabled = false;
     renderAlerts();
   }
 }
@@ -722,7 +754,7 @@ function renderAlerts() {
       return true;
     })
     : [];
-  const unresolved = alerts.filter((alert) => alert.status !== 'resolved').length;
+  const unresolved = state.alerts.filter((alert) => alert.deviceId === selectedId && alert.status !== 'resolved').length;
   query('#alert-count').textContent = String(unresolved);
   if (!selectedId) {
     container.className = 'feed empty-state';
@@ -751,16 +783,17 @@ function renderAlerts() {
       createElement('span', 'status compact ' + statusClass(alert.status), statusLabel(alert.status)),
     );
     heading.append(
-      createElement('strong', '', alert.title || '设备告警'),
+      createElement('strong', '', CloudEdgeOperations.alarmTitle(alert)),
       labels,
     );
     const lifecycle = [
       alert.acknowledgedBy ? alert.acknowledgedBy + ' 已确认' : '',
-      alert.resolvedBy ? alert.resolvedBy + ' 已解决' : '',
+      alert.resolvedBy ? alert.resolvedBy + ' 已关闭' : '',
       alert.resolutionReason ? '原因：' + alert.resolutionReason : '',
     ].filter(Boolean);
     content.append(
       heading,
+      createElement('p', 'alert-evidence', CloudEdgeOperations.condition(alert, currentDevice()).label),
       createElement('p', 'alert-evidence', describeEvidence(alert)),
       createElement('p', 'alert-meta', ['创建于 ' + formatTime(alert.createdAt), ...lifecycle].join(' · ')),
     );
@@ -776,7 +809,7 @@ function renderAlerts() {
     }
     if (alert.status === 'acknowledged') {
       const key = 'resolve:' + alert.id;
-      const resolve = createElement('button', 'text-button resolve', state.busy.has(key) ? '处理中...' : '解决');
+      const resolve = createElement('button', 'text-button resolve', state.busy.has(key) ? '处理中...' : '关闭');
       resolve.type = 'button';
       resolve.dataset.focusKey = 'alert:resolve:' + alert.id;
       resolve.disabled = state.busy.has(key);
@@ -794,7 +827,7 @@ function eventDeviceId(event) {
 }
 
 function describeEvent(event) {
-  if (event.alert) return (event.alert.title || '设备告警') + ' · ' + statusLabel(event.alert.status);
+  if (event.alert) return CloudEdgeOperations.alarmTitle(event.alert) + ' · ' + statusLabel(event.alert.status);
   if (event.command) {
     return String(event.command.type || 'command').toUpperCase() + ' ' + statusLabel(event.command.status) + ' · ' + clampProgress(event.command.progress) + '%';
   }
@@ -821,7 +854,9 @@ function renderEvents() {
     const icon = createElement('span', 'event-icon', typePrefix || 'E');
     icon.setAttribute('aria-hidden', 'true');
     const content = createElement('div');
-    const title = createElement('strong', '', event.type || 'event');
+    const eventLabels = { 'telemetry.updated': '遥测接收', 'device.updated': '设备状态变更', 'alert.created': '告警触发', 'alert.updated': '告警更新', 'command.created': '升级任务创建', 'command.updated': '任务执行更新' };
+    const title = createElement('strong', '', eventLabels[event.type] || event.type || '运行事件');
+    title.title = event.type || '';
     const deviceId = eventDeviceId(event);
     const detail = describeEvent(event) + (deviceId ? ' · ' + deviceId : '');
     content.append(title, createElement('p', '', detail), createElement('time', '', formatTime(event.occurredAt)));
@@ -835,7 +870,7 @@ function renderHeaderActions() {
   const button = query('#inject-alert');
   const busy = state.busy.has('inject-alert');
   button.disabled = !currentDevice() || busy;
-  button.textContent = busy ? '正在注入...' : '注入高温告警';
+  button.textContent = busy ? '正在模拟...' : '模拟温度超限';
 }
 
 function renderAll() {
@@ -964,6 +999,9 @@ async function applyCredentials() {
 }
 
 function clearPrivateState() {
+  query('#resolve-dialog').close();
+  query('#resolution-note').value = '';
+  state.resolvingAlertId = null;
   state.authSequence += 1;
   state.eventSource?.close();
   state.eventSource = null;
@@ -1047,6 +1085,16 @@ query('#device-search').addEventListener('input', (event) => {
   state.search = event.target.value;
   renderDeviceList();
 });
+query('#device-status-filter').addEventListener('change', (event) => {
+  state.deviceStatus = event.target.value;
+  renderDeviceList();
+});
+query('#telemetry-metric').addEventListener('change', (event) => {
+  state.telemetryMetric = event.target.value;
+  renderTelemetry();
+});
+query('#resolve-form').addEventListener('submit', submitResolution);
+query('#resolve-cancel').addEventListener('click', () => query('#resolve-dialog').close());
 
 query('#alert-status-filter')?.addEventListener('change', (event) => {
   state.alertStatus = event.target.value;

@@ -61,6 +61,8 @@ open -> acknowledged -> resolved
 
 Repeated identical acknowledgement or resolution is idempotent. Manual resolution requires prior acknowledgement. Connectivity alerts may be resolved directly by the system when telemetry resumes.
 
+In v0.5 the Chinese UI uses “已关闭” for `resolved`, leaving the API unchanged. The dashboard requires a nonblank disposition note (up to 1,000 characters) and sends it as `reason`; API clients retain the existing optional-reason behavior. Latest-sample threshold condition is a separate presentation calculation, not a persisted active/cleared state. Manual closure does not guarantee the condition has cleared.
+
 ## OTA commands
 
 - `POST /api/ota-jobs` accepts `deviceId`, `targetVersion`, and optional `artifactUrl`, `checksum`, `requestId`, and either `expiresInSeconds` or `expiresAt`.

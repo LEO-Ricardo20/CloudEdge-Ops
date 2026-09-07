@@ -26,9 +26,9 @@
     <section class="page-heading">
       <div>
         <p class="eyebrow">Operations</p>
-        <h1>设备运行控制台</h1>
+        <h1>设备运维工作台</h1>
       </div>
-      <button id="inject-alert" class="button secondary" type="button">注入高温告警</button>
+      <button id="inject-alert" class="button secondary" type="button">模拟温度超限</button>
     </section>
 
     <div id="page-error" class="notice error" role="alert" hidden></div>
@@ -79,12 +79,19 @@
         <div class="panel-heading compact">
           <div>
             <p class="eyebrow">Fleet</p>
-            <h2 id="devices-heading">设备列表</h2>
+            <h2 id="devices-heading">设备台账</h2>
           </div>
           <span id="device-count" class="badge">0</span>
         </div>
         <label class="visually-hidden" for="device-search">搜索设备</label>
         <input id="device-search" class="search-input" type="search" placeholder="搜索名称、ID 或类型" autocomplete="off">
+        <label class="visually-hidden" for="device-status-filter">连接状态</label>
+        <select id="device-status-filter" class="compact-select">
+          <option value="all">全部连接状态</option>
+          <option value="online">在线</option>
+          <option value="offline">上报超时</option>
+          <option value="unknown">尚未上报</option>
+        </select>
         <nav id="device-list" class="device-list" aria-label="选择设备"></nav>
       </aside>
 
@@ -101,10 +108,12 @@
           <div id="device-empty" class="empty-state">选择一台设备查看运行状态。</div>
           <div id="device-details" hidden>
             <dl class="shadow-grid">
-              <div><dt>已上报固件</dt><dd id="reported-firmware">-</dd></div>
-              <div><dt>目标固件</dt><dd id="desired-firmware">-</dd></div>
-              <div><dt>最后在线</dt><dd id="last-seen">-</dd></div>
+              <div><dt>上报固件版本</dt><dd id="reported-firmware">-</dd></div>
+              <div><dt>期望固件版本</dt><dd id="desired-firmware">-</dd></div>
+              <div><dt>最近接收时间</dt><dd id="last-seen">-</dd></div>
               <div><dt>运行模式</dt><dd id="device-mode">-</dd></div>
+              <div><dt>固件版本一致性</dt><dd id="firmware-alignment">-</dd></div>
+              <div><dt>遥测观测时间</dt><dd id="observed-at">-</dd></div>
             </dl>
           </div>
         </article>
@@ -118,6 +127,14 @@
             <span id="temperature-value" class="metric-value">-</span>
           </div>
           <svg id="telemetry-chart" viewBox="0 0 620 180" role="img" aria-label="所选设备温度趋势图"></svg>
+          <label class="visually-hidden" for="telemetry-metric">趋势指标</label>
+          <select id="telemetry-metric" class="compact-select">
+            <option value="temperatureC">温度 · °C</option>
+            <option value="vibrationMmS">振动速度 · mm/s</option>
+            <option value="batteryPct">电池电量 · %</option>
+            <option value="motorRpm">电机转速 · r/min</option>
+          </select>
+          <p id="telemetry-window" class="alert-meta"></p>
           <div id="metric-list" class="metric-list"></div>
         </article>
 
@@ -126,7 +143,7 @@
             <div class="panel-heading compact">
               <div>
                 <p class="eyebrow">OTA deployment</p>
-                <h2 id="ota-heading">固件升级</h2>
+                <h2 id="ota-heading">OTA 升级任务（模拟）</h2>
               </div>
             </div>
             <form id="ota-form" class="ota-form">
@@ -144,7 +161,7 @@
             <div class="panel-heading compact">
               <div>
                 <p class="eyebrow">Command audit</p>
-                <h2 id="commands-heading">命令记录</h2>
+                <h2 id="commands-heading">任务执行记录</h2>
               </div>
               <span id="command-count" class="badge">0</span>
             </div>
@@ -157,16 +174,16 @@
             <div class="panel-heading compact">
               <div>
                 <p class="eyebrow">Alert center</p>
-                <h2 id="alerts-heading">告警与证据</h2>
+                <h2 id="alerts-heading">告警处置</h2>
               </div>
               <div class="panel-heading-actions">
                 <span id="alert-count" class="badge">0</span>
                 <label class="visually-hidden" for="alert-status-filter">告警状态筛选</label>
                 <select id="alert-status-filter" class="compact-select">
                   <option value="all">全部状态</option>
-                  <option value="open">待处理</option>
+                  <option value="open">待确认</option>
                   <option value="acknowledged">已确认</option>
-                  <option value="resolved">已解决</option>
+                  <option value="resolved">已关闭</option>
                 </select>
                 <label class="visually-hidden" for="alert-severity-filter">告警级别筛选</label>
                 <select id="alert-severity-filter" class="compact-select">
@@ -192,6 +209,20 @@
       </div>
     </section>
   </main>
+  <dialog id="resolve-dialog" aria-labelledby="resolve-title">
+    <form id="resolve-form">
+      <h2 id="resolve-title">关闭告警</h2>
+      <p id="resolve-context" class="alert-evidence"></p>
+      <label for="resolution-note">处置记录</label>
+      <textarea id="resolution-note" required maxlength="1000" rows="4" placeholder="记录检查结果、已采取的措施及后续安排"></textarea>
+      <p id="resolve-error" class="field-error" role="alert" hidden></p>
+      <div class="access-actions">
+        <button id="resolve-submit" class="button" type="submit">提交并关闭告警</button>
+        <button id="resolve-cancel" class="button secondary" type="button">取消</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="/operations.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

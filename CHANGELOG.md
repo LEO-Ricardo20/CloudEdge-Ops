@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 - 2026-09-07
+
+- Research official AWS IoT, Azure IoT Hub and ThingsBoard terminology, with sources and scope recorded in `docs/INDUSTRY_RESEARCH.md`.
+- Present alarm disposition separately from the latest observed threshold condition; require a disposition note in the dashboard closure dialog while preserving the existing API.
+- Add connection-state filtering, reported/desired firmware alignment and distinct receive/observation timestamps.
+- Add temperature, vibration velocity, battery and motor-speed trends using actual receive-time spacing; reject null/non-numeric samples and label historical data for offline devices.
+- Use consistent Chinese operations terminology and explicitly label simulated OTA tasks. Preserve seconds for short offline thresholds.
+- Extend domain/presentation and browser verification for closure notes, state filters and metric selection.
+
 ## 0.4.0 - 2026-09-07
 
 - Require operator authentication for fleet, alerts, metrics and event history in protected mode; scope device detail reads to the operator or that device.

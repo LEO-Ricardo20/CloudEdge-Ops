@@ -10,7 +10,11 @@ CloudEdge Ops is a portfolio project for connected industrial and robot devices.
 
 This repository implements the local Node.js MVP. It does not claim real hardware, MQTT, Go services, production scale, or AI diagnosis. Those remain explicit future milestones.
 
-Current release: **v0.4.0**. Formerly named CloudEdge AI. See the [improvement plan](docs/IMPROVEMENT_PLAN.md), [verification evidence](docs/VERIFICATION.md) and [release notes](CHANGELOG.md).
+Current release: **v0.5.0**. Formerly named CloudEdge AI. See the [industry research and terminology](docs/INDUSTRY_RESEARCH.md), [improvement plan](docs/IMPROVEMENT_PLAN.md), [verification evidence](docs/VERIFICATION.md) and [release notes](CHANGELOG.md).
+
+Built for device operations, embedded/IoT development and field-service engineering demonstrations. The dashboard adds connection filters, four telemetry trends, reported/desired firmware alignment, alarm disposition notes and a separate latest-sample condition. Terminology is informed by AWS IoT, Azure IoT Hub and ThingsBoard documentation; this does not imply integration or standards compliance.
+
+The UI labels API `resolved` as closed: workflow closure does not prove recovery. Latest-sample threshold status is shown separately and becomes unknown when the device is offline or the metric is missing. Manual dashboard closure requires a disposition note. Demo thresholds are not equipment-specific engineering limits.
 
 ## Demonstrated operational loop
 

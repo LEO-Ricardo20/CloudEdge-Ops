@@ -1,5 +1,18 @@
 # v0.3 Verification
 
+## v0.5 verification - 2026-09-07
+
+Local environment: Windows, Node.js v24.11.1, Chrome through Playwright Core.
+
+- Full suite: 41 passed, 0 failed. Integration suite: 27 passed, 0 failed.
+- Additional checks cover 15-second threshold formatting, null/string telemetry rejection, receive-time ordering, disposition-note retention and workflow closure while the sampled condition is still over threshold.
+- Browser smoke in demo and protected modes covers connection filters, metric selection, blank-note rejection, disposition submission, OTA, login/logout, and desktop/mobile layouts (1440, 390 and 320 pixels).
+- Mobile disposition dialog is checked for internal overflow and captured in `docs/screenshots/*-disposition-mobile.png`.
+- Existing demo/protected desktop/mobile screenshots are regenerated from the current workflow. These are simulated measurements, not production evidence.
+- Industry research is based on four successfully fetched official documentation pages; sources and implementation limits are in `docs/INDUSTRY_RESEARCH.md`. No user interviews or standards certification were performed.
+
+The older records below describe their respective releases.
+
 ## v0.4 verification - 2026-09-07
 
 Local environment: Windows, Node.js v24.11.1, installed Chrome through Playwright Core.
