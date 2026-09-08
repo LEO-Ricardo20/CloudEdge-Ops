@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 
 const ACTIVE_COMMAND_STATUSES = ['queued', 'acknowledged', 'downloading', 'installing'];
 const TERMINAL_COMMAND_STATUSES = ['success', 'failed', 'expired'];
@@ -293,7 +294,7 @@ class CloudEdgePlatform {
   }
 
   ingestTelemetry(input) {
-    if (!this.transaction) return this.runMutation(() => this.ingestTelemetry(input));
+    if (!this.transaction) return this.runMutation(() => this.ingestTelemetry(input), { persistIfUnchanged: false });
     if (!isPlainObject(input)) {
       throw new DomainError('telemetry payload is required', { code: 'VALIDATION_ERROR' });
     }
@@ -314,6 +315,21 @@ class CloudEdgePlatform {
     const timestamp = input.timestamp == null
       ? receivedAt
       : this.validateTimestamp(input.timestamp);
+    const identified = input.bootId != null || input.sequence != null;
+    if (identified) {
+      if (typeof input.bootId !== 'string' || !/^[A-Za-z0-9._:-]{1,100}$/.test(input.bootId)
+        || !Number.isSafeInteger(input.sequence) || input.sequence < 0 || input.timestamp == null) {
+        throw new DomainError('bootId, nonnegative safe-integer sequence and timestamp are required together', { code: 'VALIDATION_ERROR' });
+      }
+      const prior = (this.telemetry.get(deviceId) || []).find((event) => event.bootId === input.bootId && event.sequence === input.sequence);
+      if (prior) {
+        if (prior.timestamp !== timestamp || !isDeepStrictEqual(prior.metrics, input.metrics)
+          || !isDeepStrictEqual(prior.reportedState, input.reportedState || {})) {
+          throw conflict('telemetry identity was reused with different content', 'TELEMETRY_IDENTITY_REUSE');
+        }
+        return { telemetry: clone(prior), alerts: [], duplicate: true };
+      }
+    }
     const wasKnown = this.devices.has(deviceId);
     const device = this.devices.get(deviceId) || this.registerDevice({
       id: deviceId,
@@ -330,6 +346,7 @@ class CloudEdgePlatform {
       receivedAt,
       metrics: clone(input.metrics),
       reportedState: clone(input.reportedState || {}),
+      ...(identified ? { bootId: input.bootId, sequence: input.sequence } : {}),
     };
     const history = this.telemetry.get(storedDevice.id) || [];
     history.push(event);
@@ -355,7 +372,7 @@ class CloudEdgePlatform {
 
     const createdAlerts = this.evaluateTelemetryRules(event);
     this.emit('telemetry.updated', { telemetry: clone(event), device: this.getDevice(storedDevice.id) });
-    return { telemetry: clone(event), alerts: createdAlerts };
+    return { telemetry: clone(event), alerts: createdAlerts, duplicate: false };
   }
 
   getTelemetry(deviceId, limit = 60) {

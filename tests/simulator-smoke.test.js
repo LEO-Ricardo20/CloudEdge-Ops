@@ -94,6 +94,8 @@ test(`real simulator completes and restores OTA in ${authMode} mode`, async () =
     assert.ok(fs.existsSync(stateFile));
 
     const telemetryCountBeforeRestart = device.recentTelemetry.length;
+    const bootBeforeRestart = device.latestTelemetry.bootId;
+    assert.equal(typeof bootBeforeRestart, 'string');
     simulator.kill();
     await once(simulator, 'exit');
     simulator = spawn(process.execPath, [path.resolve(__dirname, '..', 'simulator', 'device-simulator.js')], {
@@ -111,6 +113,7 @@ test(`real simulator completes and restores OTA in ${authMode} mode`, async () =
     simulator.stdout.on('data', (chunk) => { simulatorOutput += chunk.toString(); });
     simulator.stderr.on('data', (chunk) => { simulatorOutput += chunk.toString(); });
     await waitFor(() => platform.getDevice('robot-arm-01').recentTelemetry.length > telemetryCountBeforeRestart);
+    assert.notEqual(platform.getDevice('robot-arm-01').latestTelemetry.bootId, bootBeforeRestart);
     assert.equal(platform.getDevice('robot-arm-01').firmwareVersion, '0.2.0');
     assert.equal(platform.getDevice('robot-arm-01').shadow.reported.firmwareVersion, '0.2.0');
 

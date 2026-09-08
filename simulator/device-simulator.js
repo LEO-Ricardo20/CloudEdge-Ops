@@ -1,4 +1,5 @@
 const baseUrl = process.env.CLOUDEDGE_API || 'http://127.0.0.1:4173';
+const { TelemetryDelivery } = require('./telemetry-delivery');
 const deviceId = process.env.DEVICE_ID || 'robot-arm-01';
 const deviceToken = process.env.DEVICE_TOKEN || '';
 const configuredInterval = Number(process.env.SIMULATOR_INTERVAL_MS);
@@ -28,16 +29,14 @@ async function request(path, options = {}) {
   return body;
 }
 
-async function postTelemetry() {
-  await request('/api/telemetry', {
+const delivery = new TelemetryDelivery({
+  deviceId,
+  sample: () => ({ metrics: metrics(), reportedState: { mode: 'auto', firmwareVersion } }),
+  send: (payload) => request('/api/telemetry', {
     method: 'POST',
-    body: JSON.stringify({
-      deviceId,
-      metrics: metrics(),
-      reportedState: { mode: 'auto', firmwareVersion },
-    }),
-  });
-}
+    body: JSON.stringify(payload),
+  }),
+});
 
 async function processCommands() {
   const result = await request(`/api/commands?deviceId=${encodeURIComponent(deviceId)}`);
@@ -72,7 +71,7 @@ async function restoreReportedFirmware() {
 
 async function loop() {
   try {
-    await postTelemetry();
+    await delivery.deliver();
     await processCommands();
     process.stdout.write(`[edge] telemetry sent for ${deviceId}\n`);
   } catch (error) {

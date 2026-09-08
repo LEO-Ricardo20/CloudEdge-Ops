@@ -47,6 +47,10 @@ All API requests have an additional default limit of 1,000 per 60 seconds per IP
 - `POST /api/telemetry` requires `deviceId` and a `metrics` object containing finite numeric values. `reportedState` is optional.
 - Unknown device IDs are registered automatically on first telemetry.
 
+Optional delivery identity: provide `bootId` (1-100 ASCII letters/digits or `._:-`), a nonnegative safe-integer `sequence`, and `timestamp` together. Deduplication is scoped to the device and its latest 240 retained samples. Matching identity and normalized timestamp/metrics/reportedState return HTTP 202 with the original `telemetry`, `alerts: []`, and `duplicate: true`. Object key order does not affect matching. Reused identity with different content returns `409 TELEMETRY_IDENTITY_REUSE`. New samples return `duplicate: false`.
+
+Duplicates do not refresh liveness, change shadow state, persist or emit events. The deduplication window survives snapshot restore because identities are stored with telemetry. Samples outside this window can be accepted again. Requests without identity retain legacy behavior. Sequence is an identity component, not an ordering guarantee; this version does not reject delayed/reordered new messages or retain retired boot sessions indefinitely.
+
 ## Alerts
 
 - `GET /api/alerts` lists all alerts; `?status=open|acknowledged|resolved` filters them.

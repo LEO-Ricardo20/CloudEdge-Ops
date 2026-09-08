@@ -10,7 +10,9 @@ CloudEdge Ops 是一个面向工业设备和机器人设备的作品集项目。
 
 当前仓库实现的是可在本地运行的 Node.js MVP。项目不宣称已经支持真实硬件、MQTT、Go 服务、生产级规模或 AI 诊断；这些能力仍属于明确的未来里程碑。
 
-当前版本：**v0.5.0**，原项目名称为 CloudEdge AI。参见[行业资料与术语依据](docs/INDUSTRY_RESEARCH.md)、[完善计划与验收标准](docs/IMPROVEMENT_PLAN.md)、[验证记录](docs/VERIFICATION.md)和[更新记录](CHANGELOG.md)。
+当前版本：**v0.6.0**，原项目名称为 CloudEdge AI。参见[行业资料与术语依据](docs/INDUSTRY_RESEARCH.md)、[完善计划与验收标准](docs/IMPROVEMENT_PLAN.md)、[验证记录](docs/VERIFICATION.md)和[更新记录](CHANGELOG.md)。
+
+本版新增 `(deviceId, bootId, sequence)` 遥测身份，在每设备保留的最近 240 条采样内支持幂等重试。模拟器失败后保留一条原始消息及观测时间，在下次循环重试；新进程生成新启动标识。运行 `npm run test:reliability` 可复现响应丢失、设备重启、写盘及通信故障测试。详见[可靠性范围](docs/RELIABILITY.md)，不宣称持久化离线缓存或端到端恰好一次投递。
 
 面向设备运维、嵌入式/IoT 研发与交付售后工程师。本版提供设备连接状态筛选、四类遥测趋势、上报/期望固件一致性、告警处置记录与最近采样工况。术语参考 AWS IoT、Azure IoT Hub 和 ThingsBoard 官方资料；不代表采用了这些平台或符合某项工业标准。
 

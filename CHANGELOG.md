@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 - 2026-09-08
+
+- Add opt-in telemetry identity using device, boot ID and sequence; deduplicate within each device's 240 retained samples without writes, events or liveness refresh.
+- Reject conflicting identity reuse, preserving legacy telemetry clients without identity fields.
+- Retain one simulator sample until acknowledgement; retry the original timestamp and payload after a transport/server failure. Generate a new boot ID for each simulator process.
+- Add reproducible response-loss, transport-failure, server-restore, device-restart and deduplication-window tests through `npm run test:reliability`.
+- Document bounded retry guarantees; MQTT, hardware OTA and durable offline buffering remain future work.
+
 ## 0.5.0 - 2026-09-07
 
 - Research official AWS IoT, Azure IoT Hub and ThingsBoard terminology, with sources and scope recorded in `docs/INDUSTRY_RESEARCH.md`.

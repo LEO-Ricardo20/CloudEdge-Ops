@@ -1,5 +1,13 @@
 # v0.3 Verification
 
+## v0.6 verification - 2026-09-08
+
+- `npm test`: 46 passed, 0 failed.
+- `npm run test:reliability`: 13 passed, 0 failed, including response loss after HTTP commit, identity conflicts, bounded-window eviction, JSON restore, unavailable transport and real simulator restart.
+- `npm run test:browser`: demo and protected workflows passed, including authentication, alarm disposition, OTA and responsive layout.
+- `git diff --check`: passed.
+- Scope and reproducible scenarios: `docs/RELIABILITY.md`. The injected failure after HTTP commit is a test sender discarding the response, not a measured physical network outage.
+
 ## v0.5 verification - 2026-09-07
 
 Local environment: Windows, Node.js v24.11.1, Chrome through Playwright Core.
